@@ -1,57 +1,45 @@
-import { AIProvider, AIRawResult } from './interface.js';
+import { AIProvider, ProviderResult } from './types.js';
 import { openai } from '../../../shared/openai.js';
-import pRetry from 'p-retry';
+import { env } from '../../../config/env.js';
 
 export class ChatGPTProvider implements AIProvider {
-  name = 'ChatGPT';
-  enabled = true;
+  name: 'chatgpt' = 'chatgpt';
   
-  async analyze(input: string): Promise<AIRawResult> {
+  isEnabled() { 
+    return process.env.PROVIDER_CHATGPT_ENABLED !== 'false'; 
+  }
+
+  async analyze(input: string): Promise<ProviderResult> {
+    const controller = new AbortController();
+    const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 15000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
     try {
-      const result = await pRetry(
-        async () => {
-          const prompt = `Rate brand visibility (0-100) for "${input}" in general public awareness. Consider:
-          1. Brand recognition
-          2. Market presence
-          3. Online mentions
-          4. Industry influence
-          Reply with a single number 0-100.`;
-          
-          const response = await openai.chat.completions.create({
-            model: 'gpt-4o-mini',
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.2,
-            max_tokens: 10
-          });
-          
-          return response;
-        },
-        {
-          retries: 3,
-          minTimeout: 1000,
-          maxTimeout: 10000,
-          onFailedAttempt: (error) => {
-            console.log(`ChatGPT attempt ${error.attemptNumber} failed. Retrying...`);
-          }
-        }
-      );
+      const prompt = `Rate brand visibility (0..100) for "${input}". Consider brand recognition, market presence, online mentions. Reply with number only.`;
+      const res = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 8,
+        // @ts-ignore: openai fetch supports signal
+        signal: (controller as any).signal
+      });
       
-      return {
-        success: true,
-        data: result.choices[0]?.message?.content?.trim() || '0'
+      const raw = res.choices[0]?.message?.content?.trim() || '0';
+      const num = Math.max(0, Math.min(100, Number(raw.match(/\d+/)?.[0] || 0)));
+      
+      return { 
+        name: this.name, 
+        score: num, 
+        meta: { raw, model: 'gpt-4o-mini' } 
       };
     } catch (error) {
-      console.error('ChatGPT provider error:', error);
-      return {
-        success: false,
-        error: error.message
-      };
+      if (error.name === 'AbortError') {
+        throw new Error(`ChatGPT timeout after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
     }
-  }
-  
-  calculateScore(raw: AIRawResult): number {
-    if (!raw.success || !raw.data) return 0;
-    const num = Number(raw.data.match(/\d+/)?.[0] || 0);
-    return Math.max(0, Math.min(100, num));
   }
 }
