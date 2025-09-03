@@ -1,0 +1,39 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String            @id @default(uuid())
+  email            String            @unique
+  name             String?
+  createdAt        DateTime          @default(now())
+  visibilityScores VisibilityScore[]
+}
+
+model VisibilityScore {
+  id            String      @id @default(uuid())
+  input         String
+  chatGPTScore  Float?
+  googleScore   Float?
+  combinedScore Float?
+  status        ScoreStatus @default(PENDING)
+  error         String?
+  user          User?       @relation(fields: [userId], references: [id])
+  userId        String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([input])
+  @@index([userId])
+}
+
+enum ScoreStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
