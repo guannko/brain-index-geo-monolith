@@ -1,4 +1,3 @@
-
 import { buildServer } from './config/fastify.js';
 import analyzerRoutes from './modules/analyzer/analyzer.controller.js';
 import { prisma } from './prisma/client.js';

@@ -1,4 +1,3 @@
-
 # Brain Index GEO — Monolithic TS Fastify + Prisma + BullMQ
 
 Production-ready skeleton for AI Visibility analysis (ChatGPT/Google), with:

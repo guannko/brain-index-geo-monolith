@@ -1,4 +1,3 @@
-
 import { Queue, Worker, JobsOptions } from 'bullmq';
 import { redis } from '../shared/redis.js';
 import { aiAnalyzerService } from '../modules/analyzer/analyzer.service.js';

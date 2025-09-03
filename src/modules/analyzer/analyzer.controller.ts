@@ -1,4 +1,3 @@
-
 import { FastifyInstance } from 'fastify';
 import { aiAnalyzerService } from './analyzer.service.js';
 import { analyzeQueue } from '../../queue/index.js';
