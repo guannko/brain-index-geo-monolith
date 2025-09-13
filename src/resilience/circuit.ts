@@ -1,12 +1,12 @@
 import type { Redis } from 'ioredis';
-import { env } from '../config/env.js';
 import { circuitEvents } from '../observability/metrics.js';
 
 type State = 'closed' | 'open' | 'half';
 
-const winMs = Number(env.CB_WINDOW_MS || 60000);
-const thld = Number(env.CB_FAIL_THRESHOLD || 5);
-const halfMs = Number(env.CB_HALF_OPEN_MS || 60000);
+// Circuit breaker configuration with defaults
+const winMs = 60000;  // 60 seconds window
+const thld = 5;       // 5 failures to open
+const halfMs = 60000; // 60 seconds in half-open
 
 function keyState(p: string) { return `cb:${p}:state`; }
 function keyFail(p: string) { return `cb:${p}:fails`; }
@@ -20,8 +20,10 @@ export async function shouldShortCircuit(redis: Redis, provider: string): Promis
   const openedAt = Number(await redis.get(keyOpenAt(provider)) || 0);
   if (!openedAt || (Date.now() - openedAt) > halfMs) {
     // Try to transition to HALF-OPEN (single probe)
-    const ok = await redis.set(keyProbe(provider), '1', 'NX', 'PX', halfMs);
-    if (ok === 'OK') {
+    const probeKey = keyProbe(provider);
+    const exists = await redis.exists(probeKey);
+    if (!exists) {
+      await redis.setex(probeKey, Math.floor(halfMs / 1000), '1');
       await redis.set(keyState(provider), 'half');
       circuitEvents.labels(provider, 'half_open').inc();
       return false; // Allow one attempt
