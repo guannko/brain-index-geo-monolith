@@ -1,21 +1,26 @@
-# Multi-stage build
-FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* .npmrc* ./ 2>/dev/null || true
-RUN npm i --ignore-scripts
+# Single-stage build for Railway
+FROM node:20-alpine
 
-FROM node:20-alpine AS build
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+
+# Copy package files
+COPY package*.json ./
+COPY .npmrc* ./
+
+# Install dependencies
+RUN npm ci || npm install
+
+# Copy source code
 COPY . .
-RUN npm run prisma:generate && npm run build
 
-FROM node:20-alpine AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY prisma ./prisma
-COPY package.json .
+# Generate Prisma client
+RUN npx prisma generate
+
+# Build the app
+RUN npm run build
+
+# Expose port
 EXPOSE 3000
+
+# Start the app
 CMD ["node", "dist/index.js"]
