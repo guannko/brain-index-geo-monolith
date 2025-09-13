@@ -1,26 +1,19 @@
-# Single-stage build for Railway
 FROM node:20-alpine
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
-COPY .npmrc* ./
 
 # Install dependencies
-RUN npm ci || npm install
+RUN npm install
 
-# Copy source code
+# Copy all source
 COPY . .
 
-# Generate Prisma client
-RUN npx prisma generate
-
-# Build the app
+# Try to build
 RUN npm run build
 
-# Expose port
+# Start
 EXPOSE 3000
-
-# Start the app
-CMD ["node", "dist/index.js"]
+CMD ["npm", "start"]
