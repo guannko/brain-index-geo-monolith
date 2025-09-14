@@ -5,33 +5,20 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json || echo 'Build completed'",
-    "start": "node dist/index.js",
-    "prisma:generate": "prisma generate",
-    "migrate:dev": "prisma migrate dev",
-    "migrate:prod": "prisma migrate deploy",
-    "postinstall": "prisma generate"
+    "start": "node dist/index.js"
   },
   "dependencies": {
     "@fastify/cors": "^8.5.0",
-    "@fastify/helmet": "^11.1.1",
-    "@fastify/rate-limit": "^9.1.0",
-    "@prisma/client": "^5.9.0",
     "bcrypt": "^5.1.1",
-    "bullmq": "^5.1.5",
     "dotenv": "^16.4.0",
     "fastify": "^4.25.2",
-    "ioredis": "^5.3.2",
     "jsonwebtoken": "^9.0.2",
-    "openai": "^4.26.0",
-    "pino": "^8.17.2",
-    "pino-pretty": "^10.3.1",
-    "zod": "^3.22.4"
+    "openai": "^4.26.0"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.11.5",
-    "prisma": "^5.9.0",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"
   }
