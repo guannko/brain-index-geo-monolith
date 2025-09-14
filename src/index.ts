@@ -3,19 +3,23 @@ import cors from '@fastify/cors';
 import { OpenAI } from 'openai';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { PrismaClient } from '@prisma/client';
+import Redis from 'ioredis';
 
 const fastify = Fastify({
   logger: true
 });
 
+// Initialize Prisma
+const prisma = new PrismaClient();
+
+// Initialize Redis
+const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+
 // Initialize OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || ''
 });
-
-// Simple in-memory storage
-const jobResults = new Map();
-const users = new Map(); // Temporary user storage
 
 // JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || 'brain-index-secret-2025';
@@ -27,10 +31,15 @@ await fastify.register(cors, {
 
 // Health check endpoint
 fastify.get('/health', async (request, reply) => {
+  const dbHealthy = await prisma.$queryRaw`SELECT 1`.catch(() => false);
+  const redisHealthy = await redis.ping().catch(() => false);
+  
   return { 
     status: 'ok',
     timestamp: new Date().toISOString(),
     service: 'brain-index-geo-monolith',
+    database: dbHealthy ? 'connected' : 'disconnected',
+    redis: redisHealthy === 'PONG' ? 'connected' : 'disconnected',
     openai: process.env.OPENAI_API_KEY ? 'configured' : 'missing'
   };
 });
@@ -39,74 +48,97 @@ fastify.get('/health', async (request, reply) => {
 fastify.post('/api/auth/register', async (request, reply) => {
   const { name, email, password } = request.body as { name: string; email: string; password: string };
   
-  // Check if user already exists
-  if (users.has(email)) {
-    reply.code(400);
-    return { message: 'User already exists' };
+  try {
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email }
+    });
+    
+    if (existingUser) {
+      reply.code(400);
+      return { message: 'User already exists' };
+    }
+    
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Create user in database
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+        plan: 'FREE'
+      }
+    });
+    
+    console.log('User registered:', email);
+    
+    return { 
+      message: 'Registration successful',
+      userId: user.id
+    };
+  } catch (error) {
+    console.error('Registration error:', error);
+    reply.code(500);
+    return { message: 'Registration failed' };
   }
-  
-  // Hash password
-  const hashedPassword = await bcrypt.hash(password, 10);
-  
-  // Create user
-  const user = {
-    id: Math.random().toString(36).substring(7),
-    name,
-    email,
-    password: hashedPassword,
-    plan: 'FREE',
-    createdAt: new Date().toISOString()
-  };
-  
-  users.set(email, user);
-  
-  console.log('User registered:', email);
-  
-  return { 
-    message: 'Registration successful',
-    userId: user.id
-  };
 });
 
 fastify.post('/api/auth/login', async (request, reply) => {
   const { email, password } = request.body as { email: string; password: string };
   
-  // Check if user exists
-  const user = users.get(email);
-  if (!user) {
-    reply.code(401);
-    return { message: 'Invalid email or password' };
-  }
-  
-  // Verify password
-  const isValidPassword = await bcrypt.compare(password, user.password);
-  if (!isValidPassword) {
-    reply.code(401);
-    return { message: 'Invalid email or password' };
-  }
-  
-  // Generate JWT token
-  const token = jwt.sign(
-    { 
-      userId: user.id,
-      email: user.email,
-      plan: user.plan
-    },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
-  
-  console.log('User logged in:', email);
-  
-  return {
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      plan: user.plan
+  try {
+    // Find user in database
+    const user = await prisma.user.findUnique({
+      where: { email }
+    });
+    
+    if (!user) {
+      reply.code(401);
+      return { message: 'Invalid email or password' };
     }
-  };
+    
+    // Verify password
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
+      reply.code(401);
+      return { message: 'Invalid email or password' };
+    }
+    
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        userId: user.id,
+        email: user.email,
+        plan: user.plan
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    
+    // Cache user session in Redis
+    await redis.setex(`session:${user.id}`, 604800, JSON.stringify({
+      email: user.email,
+      plan: user.plan
+    }));
+    
+    console.log('User logged in:', email);
+    
+    return {
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        plan: user.plan
+      }
+    };
+  } catch (error) {
+    console.error('Login error:', error);
+    reply.code(500);
+    return { message: 'Login failed' };
+  }
 });
 
 // Middleware to verify JWT token
@@ -127,42 +159,50 @@ async function verifyToken(request: any, reply: any) {
   }
 }
 
-// Protected endpoint example
+// Protected endpoint - Get user profile
 fastify.get('/api/user/profile', { preHandler: verifyToken }, async (request: any, reply) => {
-  const user = users.get(request.user.email);
-  if (!user) {
-    reply.code(404);
-    return { message: 'User not found' };
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: request.user.userId }
+    });
+    
+    if (!user) {
+      reply.code(404);
+      return { message: 'User not found' };
+    }
+    
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      plan: user.plan,
+      createdAt: user.createdAt
+    };
+  } catch (error) {
+    console.error('Profile error:', error);
+    reply.code(500);
+    return { message: 'Failed to get profile' };
   }
-  
-  return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    plan: user.plan,
-    createdAt: user.createdAt
-  };
 });
 
 // Get user analyses (protected)
 fastify.get('/api/user/analyses', { preHandler: verifyToken }, async (request: any, reply) => {
-  // Get all analyses for this user
-  const userAnalyses: any[] = [];
-  
-  jobResults.forEach((job, jobId) => {
-    if (job.status === 'completed' && job.userId === request.user.userId) {
-      userAnalyses.push({
-        jobId,
-        ...job.result,
-        createdAt: job.timestamp || new Date().toISOString()
-      });
-    }
-  });
-  
-  return {
-    analyses: userAnalyses.slice(-10), // Last 10 analyses
-    total: userAnalyses.length
-  };
+  try {
+    const analyses = await prisma.analysis.findMany({
+      where: { userId: request.user.userId },
+      orderBy: { createdAt: 'desc' },
+      take: 10
+    });
+    
+    return {
+      analyses,
+      total: analyses.length
+    };
+  } catch (error) {
+    console.error('Get analyses error:', error);
+    reply.code(500);
+    return { message: 'Failed to get analyses' };
+  }
 });
 
 // Analyzer endpoint with user tracking
@@ -171,7 +211,7 @@ fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
   const jobId = Math.random().toString(36).substring(7);
   
   // Get user from token if provided
-  let userId = 'anonymous';
+  let userId = null;
   const authHeader = request.headers.authorization;
   if (authHeader) {
     try {
@@ -194,18 +234,16 @@ fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
 });
 
 // Async function to perform real OpenAI analysis
-async function analyzeWithOpenAI(brandName: string, jobId: string, userId: string) {
+async function analyzeWithOpenAI(brandName: string, jobId: string, userId: string | null) {
   try {
-    console.log(`Starting OpenAI analysis for ${brandName} by user ${userId}`);
+    console.log(`Starting OpenAI analysis for ${brandName}`);
     
-    // Store initial status
-    jobResults.set(jobId, {
-      jobId,
+    // Store initial status in Redis
+    await redis.setex(`job:${jobId}`, 300, JSON.stringify({
       status: 'processing',
       brandName,
-      userId,
-      timestamp: new Date().toISOString()
-    });
+      userId
+    }));
     
     // Check if OpenAI key exists
     if (!process.env.OPENAI_API_KEY) {
@@ -213,17 +251,33 @@ async function analyzeWithOpenAI(brandName: string, jobId: string, userId: strin
       const brandHash = brandName.toLowerCase().split('').reduce((a, b) => a + b.charCodeAt(0), 0);
       const baseScore = (brandHash % 40) + 30;
       
-      jobResults.set(jobId, {
-        jobId,
+      const result = {
+        chatgpt: baseScore + Math.floor(Math.random() * 20),
+        google: baseScore + Math.floor(Math.random() * 20),
+        timestamp: new Date().toISOString(),
+        brandName
+      };
+      
+      // Store in Redis
+      await redis.setex(`job:${jobId}`, 3600, JSON.stringify({
         status: 'completed',
-        userId,
-        result: {
-          chatgpt: baseScore + Math.floor(Math.random() * 20),
-          google: baseScore + Math.floor(Math.random() * 20),
-          timestamp: new Date().toISOString(),
-          brandName
-        }
-      });
+        result
+      }));
+      
+      // Save to database if user is logged in
+      if (userId) {
+        await prisma.analysis.create({
+          data: {
+            userId,
+            jobId,
+            brandName,
+            chatgpt: result.chatgpt,
+            google: result.google,
+            status: 'completed'
+          }
+        });
+      }
+      
       return;
     }
     
@@ -299,98 +353,155 @@ async function analyzeWithOpenAI(brandName: string, jobId: string, userId: strin
       };
     }
     
-    // Store result
-    jobResults.set(jobId, {
-      jobId,
+    // Store result in Redis
+    await redis.setex(`job:${jobId}`, 3600, JSON.stringify({
       status: 'completed',
-      userId,
       result
-    });
+    }));
+    
+    // Save to database if user is logged in
+    if (userId) {
+      await prisma.analysis.create({
+        data: {
+          userId,
+          jobId,
+          brandName,
+          chatgpt: result.chatgpt,
+          google: result.google,
+          analysis: result.analysis,
+          status: 'completed'
+        }
+      });
+    }
     
     console.log(`Analysis completed for ${brandName}:`, result);
     
   } catch (error) {
     console.error('Error in OpenAI analysis:', error);
     
-    const brandHash = brandName.toLowerCase().split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-    const baseScore = (brandHash % 30) + 20;
-    
-    jobResults.set(jobId, {
-      jobId,
-      status: 'completed',
-      userId,
-      result: {
-        chatgpt: baseScore + Math.floor(Math.random() * 20),
-        google: baseScore + Math.floor(Math.random() * 20),
-        timestamp: new Date().toISOString(),
-        error: 'Analysis failed, using estimated scores',
-        brandName
-      }
-    });
+    // Store error status in Redis
+    await redis.setex(`job:${jobId}`, 300, JSON.stringify({
+      status: 'failed',
+      error: 'Analysis failed'
+    }));
   }
 }
 
-// Results endpoint
+// Results endpoint - check Redis first, then database
 fastify.get('/api/analyzer/results/:id', async (request, reply) => {
   const { id } = request.params as { id: string };
   
-  if (jobResults.has(id)) {
-    const result = jobResults.get(id);
-    return result;
-  }
-  
-  return {
-    jobId: id,
-    status: 'completed',
-    result: {
-      chatgpt: Math.floor(Math.random() * 100),
-      google: Math.floor(Math.random() * 100),
-      timestamp: new Date().toISOString()
+  try {
+    // Check Redis first
+    const cached = await redis.get(`job:${id}`);
+    if (cached) {
+      return JSON.parse(cached);
     }
-  };
+    
+    // Check database
+    const analysis = await prisma.analysis.findUnique({
+      where: { jobId: id }
+    });
+    
+    if (analysis) {
+      return {
+        jobId: id,
+        status: 'completed',
+        result: {
+          chatgpt: analysis.chatgpt,
+          google: analysis.google,
+          timestamp: analysis.createdAt,
+          brandName: analysis.brandName,
+          analysis: analysis.analysis
+        }
+      };
+    }
+    
+    // Return default if not found
+    return {
+      jobId: id,
+      status: 'completed',
+      result: {
+        chatgpt: Math.floor(Math.random() * 100),
+        google: Math.floor(Math.random() * 100),
+        timestamp: new Date().toISOString()
+      }
+    };
+  } catch (error) {
+    console.error('Get results error:', error);
+    reply.code(500);
+    return { message: 'Failed to get results' };
+  }
 });
 
 // Dashboard data endpoint (protected)
 fastify.get('/api/analyzer/dashboard', { preHandler: verifyToken }, async (request: any, reply) => {
-  const userAnalyses: any[] = [];
-  
-  jobResults.forEach((job) => {
-    if (job.status === 'completed' && job.userId === request.user.userId) {
-      userAnalyses.push(job.result);
+  try {
+    const analyses = await prisma.analysis.findMany({
+      where: { userId: request.user.userId },
+      orderBy: { createdAt: 'desc' }
+    });
+    
+    const totalAnalyses = analyses.length;
+    let averageScore = 0;
+    
+    if (totalAnalyses > 0) {
+      const sum = analyses.reduce((acc, analysis) => {
+        return acc + (analysis.chatgpt + analysis.google) / 2;
+      }, 0);
+      averageScore = Math.round(sum / totalAnalyses);
     }
-  });
-  
-  const totalAnalyses = userAnalyses.length;
-  let averageScore = 0;
-  
-  if (totalAnalyses > 0) {
-    const sum = userAnalyses.reduce((acc, analysis) => {
-      return acc + (analysis.chatgpt + analysis.google) / 2;
-    }, 0);
-    averageScore = Math.round(sum / totalAnalyses);
+    
+    // Calculate improvement rate (mock for now)
+    const improvementRate = totalAnalyses > 1 ? '+12%' : '0%';
+    
+    return {
+      totalAnalyses,
+      averageScore,
+      improvementRate,
+      aiMentions: totalAnalyses * 4,
+      recentAnalyses: analyses.slice(0, 10).map(a => ({
+        brandName: a.brandName,
+        chatgpt: a.chatgpt,
+        google: a.google,
+        timestamp: a.createdAt
+      }))
+    };
+  } catch (error) {
+    console.error('Dashboard error:', error);
+    reply.code(500);
+    return { message: 'Failed to get dashboard data' };
   }
-  
-  return {
-    totalAnalyses,
-    averageScore,
-    improvementRate: totalAnalyses > 1 ? '+12%' : '0%',
-    aiMentions: totalAnalyses * 4,
-    recentAnalyses: userAnalyses.slice(-10)
-  };
 });
 
 // Start server
 const start = async () => {
   try {
+    // Connect to database
+    await prisma.$connect();
+    console.log('Connected to PostgreSQL');
+    
+    // Test Redis connection
+    await redis.ping();
+    console.log('Connected to Redis');
+    
     const port = Number(process.env.PORT) || 3000;
     await fastify.listen({ port, host: '0.0.0.0' });
     console.log(`Server running on port ${port}`);
     console.log(`OpenAI API Key: ${process.env.OPENAI_API_KEY ? 'Configured' : 'Missing'}`);
-    console.log(`JWT Secret: ${JWT_SECRET ? 'Configured' : 'Using default'}`);
+    console.log(`Database: ${process.env.DATABASE_URL ? 'Configured' : 'Missing'}`);
+    console.log(`Redis: ${process.env.REDIS_URL ? 'Configured' : 'Missing'}`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
   }
 };
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  await prisma.$disconnect();
+  await redis.quit();
+  process.exit(0);
+});
 
 start();
