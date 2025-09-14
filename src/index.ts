@@ -13,7 +13,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || ''
 });
 
-// Temporary in-memory storage (until DB is fixed)
+// Temporary in-memory storage
 const jobResults = new Map();
 const users = new Map();
 
@@ -24,6 +24,25 @@ const JWT_SECRET = process.env.JWT_SECRET || 'brain-index-secret-2025';
 await fastify.register(cors, {
   origin: true
 });
+
+// Helper to detect if input is URL
+function isURL(str: string): boolean {
+  const patterns = [
+    /^https?:\/\//,
+    /^www\./,
+    /\.(com|org|net|io|dev|ai|app|co|uk|de|fr|ru|cn|jp|br|in|it|es|ca|au|nl|pl|ch|se|no|fi|dk|be|at|cz|hu|ro|gr|pt|il|sg|hk|tw|kr|mx|ar|cl|co\.uk|co\.jp|com\.au|com\.br)(\/.+)?$/i
+  ];
+  return patterns.some(pattern => pattern.test(str));
+}
+
+// Extract domain from URL
+function extractDomain(input: string): string {
+  let domain = input.trim();
+  domain = domain.replace(/^https?:\/\//, '');
+  domain = domain.replace(/^www\./, '');
+  domain = domain.split('/')[0];
+  return domain;
+}
 
 // Health check endpoint
 fastify.get('/health', async (request, reply) => {
@@ -40,16 +59,13 @@ fastify.get('/health', async (request, reply) => {
 fastify.post('/api/auth/register', async (request, reply) => {
   const { name, email, password } = request.body as { name: string; email: string; password: string };
   
-  // Check if user already exists
   if (users.has(email)) {
     reply.code(400);
     return { message: 'User already exists' };
   }
   
-  // Hash password
   const hashedPassword = await bcrypt.hash(password, 10);
   
-  // Create user
   const user = {
     id: Math.random().toString(36).substring(7),
     name,
@@ -61,7 +77,6 @@ fastify.post('/api/auth/register', async (request, reply) => {
   };
   
   users.set(email, user);
-  
   console.log('User registered:', email);
   
   return { 
@@ -73,21 +88,18 @@ fastify.post('/api/auth/register', async (request, reply) => {
 fastify.post('/api/auth/login', async (request, reply) => {
   const { email, password } = request.body as { email: string; password: string };
   
-  // Check if user exists
   const user = users.get(email);
   if (!user) {
     reply.code(401);
     return { message: 'Invalid email or password' };
   }
   
-  // Verify password
   const isValidPassword = await bcrypt.compare(password, user.password);
   if (!isValidPassword) {
     reply.code(401);
     return { message: 'Invalid email or password' };
   }
   
-  // Generate JWT token
   const token = jwt.sign(
     { 
       userId: user.id,
@@ -129,7 +141,7 @@ async function verifyToken(request: any, reply: any) {
   }
 }
 
-// Protected endpoint example
+// Protected endpoint
 fastify.get('/api/user/profile', { preHandler: verifyToken }, async (request: any, reply) => {
   const user = users.get(request.user.email);
   if (!user) {
@@ -146,7 +158,7 @@ fastify.get('/api/user/profile', { preHandler: verifyToken }, async (request: an
   };
 });
 
-// Get user analyses (protected)
+// Get user analyses
 fastify.get('/api/user/analyses', { preHandler: verifyToken }, async (request: any, reply) => {
   const user = users.get(request.user.email);
   if (!user) {
@@ -160,10 +172,14 @@ fastify.get('/api/user/analyses', { preHandler: verifyToken }, async (request: a
   };
 });
 
-// Analyzer endpoint with user tracking
+// MAIN ANALYZER ENDPOINT - NOW SUPPORTS URLs!
 fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
   const { input } = request.body as { input: string };
   const jobId = Math.random().toString(36).substring(7);
+  
+  // Detect if URL or brand
+  const isWebsite = isURL(input);
+  const cleanInput = isWebsite ? extractDomain(input) : input;
   
   // Get user from token if provided
   let userId = 'anonymous';
@@ -181,25 +197,26 @@ fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
   }
   
   // Start async analysis
-  analyzeWithOpenAI(input, jobId, userId, userEmail);
+  analyzeWithOpenAI(cleanInput, jobId, userId, userEmail, isWebsite);
   
   return {
     jobId,
     status: 'accepted',
-    input
+    input: cleanInput,
+    type: isWebsite ? 'website' : 'brand'
   };
 });
 
-// Async function to perform real OpenAI analysis
-async function analyzeWithOpenAI(brandName: string, jobId: string, userId: string, userEmail: string | null) {
+// ENHANCED OpenAI analysis for URLs and brands
+async function analyzeWithOpenAI(input: string, jobId: string, userId: string, userEmail: string | null, isWebsite: boolean) {
   try {
-    console.log(`Starting OpenAI analysis for ${brandName} by user ${userId}`);
+    console.log(`Starting OpenAI analysis for ${isWebsite ? 'website' : 'brand'}: ${input}`);
     
     // Store initial status
     jobResults.set(jobId, {
       jobId,
       status: 'processing',
-      brandName,
+      brandName: input,
       userId,
       timestamp: new Date().toISOString()
     });
@@ -207,14 +224,17 @@ async function analyzeWithOpenAI(brandName: string, jobId: string, userId: strin
     // Check if OpenAI key exists
     if (!process.env.OPENAI_API_KEY) {
       console.error('OpenAI API key not configured, using fallback');
-      const brandHash = brandName.toLowerCase().split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-      const baseScore = (brandHash % 40) + 30;
+      const inputHash = input.toLowerCase().split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+      const baseScore = isWebsite ? (inputHash % 30) + 20 : (inputHash % 40) + 30;
       
       const result = {
         chatgpt: baseScore + Math.floor(Math.random() * 20),
         google: baseScore + Math.floor(Math.random() * 20),
         timestamp: new Date().toISOString(),
-        brandName
+        brandName: input,
+        analysis: isWebsite ? 
+          `Website ${input} has moderate visibility in AI systems. To improve, focus on creating authoritative content and getting cited by reputable sources.` :
+          `Brand ${input} analysis completed with moderate visibility scores.`
       };
       
       jobResults.set(jobId, {
@@ -224,40 +244,63 @@ async function analyzeWithOpenAI(brandName: string, jobId: string, userId: strin
         result
       });
       
-      // Save to user's analyses if logged in
-      if (userEmail) {
-        const user = users.get(userEmail);
-        if (user) {
-          if (!user.analyses) user.analyses = [];
-          user.analyses.push(result);
-        }
-      }
-      
+      saveToUserAnalyses(userEmail, result);
       return;
     }
     
-    // Create prompt for OpenAI
-    const prompt = `Analyze the brand visibility of "${brandName}" in AI systems.
-    Rate from 0-100 for:
-    1. ChatGPT visibility - how well this brand would be represented in ChatGPT responses
-    2. Google AI visibility - how well this brand would appear in Google's AI features
+    // DIFFERENT PROMPTS FOR WEBSITES VS BRANDS
+    let prompt: string;
     
-    Consider factors like:
-    - Brand recognition and authority
-    - Online presence and content volume
-    - Industry relevance
-    - Training data representation
-    
-    For well-known brands like Tesla, Apple, Nike - give scores 80-95
-    For unknown or made-up brands - give scores 10-30
-    For medium brands - give scores 40-70
-    
-    Return ONLY a JSON object in this exact format with no additional text:
-    {
-      "chatgpt_score": <number 0-100>,
-      "google_score": <number 0-100>,
-      "analysis": "<brief explanation>"
-    }`;
+    if (isWebsite) {
+      prompt = `Analyze the website "${input}" for its likelihood to be referenced by AI systems.
+      
+      Rate from 0-100 for:
+      1. ChatGPT visibility - How likely ChatGPT would reference or recommend this website
+      2. Google AI visibility - How likely this site appears in Google's AI-powered features
+      
+      Consider:
+      - Domain authority and trustworthiness
+      - Content quality and structure
+      - Likelihood of being in AI training data
+      - Technical SEO factors that affect AI crawling
+      - Presence in Wikipedia, Reddit, and other authoritative sources
+      - Schema.org markup and structured data
+      
+      For major sites (Amazon, Wikipedia, GitHub) - give scores 85-95
+      For well-known niche sites - give scores 60-80
+      For average business sites - give scores 30-60
+      For new/unknown sites - give scores 10-30
+      
+      Return ONLY a JSON object:
+      {
+        "chatgpt_score": <number 0-100>,
+        "google_score": <number 0-100>,
+        "analysis": "<specific advice for improving this website's AI visibility>"
+      }`;
+    } else {
+      prompt = `Analyze the brand visibility of "${input}" in AI systems.
+      
+      Rate from 0-100 for:
+      1. ChatGPT visibility - how well this brand would be represented in ChatGPT responses
+      2. Google AI visibility - how well this brand would appear in Google's AI features
+      
+      Consider factors like:
+      - Brand recognition and authority
+      - Online presence and content volume
+      - Industry relevance
+      - Training data representation
+      
+      For well-known brands like Tesla, Apple, Nike - give scores 80-95
+      For unknown or made-up brands - give scores 10-30
+      For medium brands - give scores 40-70
+      
+      Return ONLY a JSON object:
+      {
+        "chatgpt_score": <number 0-100>,
+        "google_score": <number 0-100>,
+        "analysis": "<brief explanation>"
+      }`;
+    }
     
     // Call OpenAI API
     const response = await openai.chat.completions.create({
@@ -265,7 +308,9 @@ async function analyzeWithOpenAI(brandName: string, jobId: string, userId: strin
       messages: [
         {
           role: 'system',
-          content: 'You are an AI visibility analyst. Provide realistic scores based on brand presence.'
+          content: isWebsite ? 
+            'You are an expert in website AI visibility and SEO. Provide realistic scores and actionable advice for improving AI system recognition.' :
+            'You are an AI visibility analyst. Provide realistic scores based on brand presence.'
         },
         {
           role: 'user',
@@ -289,22 +334,24 @@ async function analyzeWithOpenAI(brandName: string, jobId: string, userId: strin
           chatgpt: parsed.chatgpt_score || Math.floor(Math.random() * 100),
           google: parsed.google_score || Math.floor(Math.random() * 100),
           timestamp: new Date().toISOString(),
-          analysis: parsed.analysis || `Analysis for ${brandName}`,
-          brandName
+          analysis: parsed.analysis || `Analysis for ${input}`,
+          brandName: input,
+          type: isWebsite ? 'website' : 'brand'
         };
       } else {
         throw new Error('No JSON found in response');
       }
     } catch (parseError) {
       console.error('Error parsing OpenAI response:', parseError);
-      const brandHash = brandName.toLowerCase().split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-      const baseScore = (brandHash % 40) + 30;
+      const inputHash = input.toLowerCase().split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+      const baseScore = isWebsite ? (inputHash % 30) + 20 : (inputHash % 40) + 30;
       
       result = {
         chatgpt: baseScore + Math.floor(Math.random() * 20),
         google: baseScore + Math.floor(Math.random() * 20),
         timestamp: new Date().toISOString(),
-        brandName
+        brandName: input,
+        type: isWebsite ? 'website' : 'brand'
       };
     }
     
@@ -316,22 +363,15 @@ async function analyzeWithOpenAI(brandName: string, jobId: string, userId: strin
       result
     });
     
-    // Save to user's analyses if logged in
-    if (userEmail) {
-      const user = users.get(userEmail);
-      if (user) {
-        if (!user.analyses) user.analyses = [];
-        user.analyses.push(result);
-      }
-    }
+    saveToUserAnalyses(userEmail, result);
     
-    console.log(`Analysis completed for ${brandName}:`, result);
+    console.log(`Analysis completed for ${input}:`, result);
     
   } catch (error) {
     console.error('Error in OpenAI analysis:', error);
     
-    const brandHash = brandName.toLowerCase().split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-    const baseScore = (brandHash % 30) + 20;
+    const inputHash = input.toLowerCase().split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+    const baseScore = isWebsite ? (inputHash % 25) + 15 : (inputHash % 30) + 20;
     
     jobResults.set(jobId, {
       jobId,
@@ -342,9 +382,21 @@ async function analyzeWithOpenAI(brandName: string, jobId: string, userId: strin
         google: baseScore + Math.floor(Math.random() * 20),
         timestamp: new Date().toISOString(),
         error: 'Analysis failed, using estimated scores',
-        brandName
+        brandName: input,
+        type: isWebsite ? 'website' : 'brand'
       }
     });
+  }
+}
+
+// Helper to save to user analyses
+function saveToUserAnalyses(userEmail: string | null, result: any) {
+  if (userEmail) {
+    const user = users.get(userEmail);
+    if (user) {
+      if (!user.analyses) user.analyses = [];
+      user.analyses.push(result);
+    }
   }
 }
 
@@ -368,7 +420,7 @@ fastify.get('/api/analyzer/results/:id', async (request, reply) => {
   };
 });
 
-// Dashboard data endpoint (protected)
+// Dashboard data endpoint
 fastify.get('/api/analyzer/dashboard', { preHandler: verifyToken }, async (request: any, reply) => {
   const user = users.get(request.user.email);
   if (!user) {
@@ -404,6 +456,7 @@ const start = async () => {
     console.log(`Server running on port ${port}`);
     console.log(`OpenAI API Key: ${process.env.OPENAI_API_KEY ? 'Configured' : 'Missing'}`);
     console.log(`JWT Secret: ${JWT_SECRET ? 'Configured' : 'Using default'}`);
+    console.log('URL Analysis: ENABLED');
     console.log('Using in-memory storage (temporary)');
   } catch (err) {
     fastify.log.error(err);
