@@ -1,5 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client-js"
@@ -10,96 +10,58 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id            String         @id @default(cuid())
-  email         String         @unique
-  password      String
-  name          String?
-  plan          Plan           @default(FREE)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  analyses      Analysis[]
-  subscription  Subscription?
-  apiKeys       ApiKey[]
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]
-}
-
-model Analysis {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  brandName       String
-  chatgptScore    Int
-  googleScore     Int
-  analysis        String   @db.Text
-  recommendations Json
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@index([userId])
-  @@index([createdAt])
-}
-
-model Subscription {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan        Plan
-  validUntil  DateTime
-  stripeId    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  canceledAt  DateTime?
-  paymentInfo Json?
-
-  @@index([userId])
-  @@index([validUntil])
-}
-
-model ApiKey {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  key       String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  expiresAt DateTime?
-  lastUsed  DateTime?
-
-  @@index([userId])
-  @@index([key])
-}
-
-model RefreshToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@index([token])
-}
-
-model AuditLog {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  action    String   // "ANALYSIS_STARTED", "EXPORT_PDF", etc.
-  entity    String   // "Analysis", "User", etc.
-  entityId  String   // ID of the entity
-  metadata  Json?    // Additional data
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([createdAt])
-}
-
 enum Plan {
   FREE
   PRO
   ENTERPRISE
+}
+
+model User {
+  id        String    @id @default(uuid())
+  email     String    @unique
+  password  String
+  name      String
+  plan      Plan      @default(FREE)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  
+  analyses  Analysis[]
+  
+  @@index([email])
+}
+
+model Analysis {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  brandName  String
+  chatgpt    Int
+  google     Int
+  analysis   String?  @db.Text
+  
+  jobId      String?  @unique
+  status     String   @default("completed")
+  
+  createdAt  DateTime @default(now())
+  
+  @@index([userId])
+  @@index([jobId])
+}
+
+model Subscription {
+  id         String   @id @default(uuid())
+  userId     String   @unique
+  plan       Plan
+  stripeId   String?  @unique
+  
+  startDate  DateTime @default(now())
+  endDate    DateTime?
+  isActive   Boolean  @default(true)
+  
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([stripeId])
 }
