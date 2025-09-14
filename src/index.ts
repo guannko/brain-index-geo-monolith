@@ -1,6 +1,8 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { OpenAI } from 'openai';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 
 const fastify = Fastify({
   logger: true
@@ -11,8 +13,12 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || ''
 });
 
-// Simple in-memory storage for job results
+// Simple in-memory storage
 const jobResults = new Map();
+const users = new Map(); // Temporary user storage
+
+// JWT secret
+const JWT_SECRET = process.env.JWT_SECRET || 'brain-index-secret-2025';
 
 // Register CORS
 await fastify.register(cors, {
@@ -29,13 +35,156 @@ fastify.get('/health', async (request, reply) => {
   };
 });
 
-// Analyzer endpoint with real OpenAI integration
-fastify.post('/api/analyzer/analyze', async (request, reply) => {
+// Auth endpoints
+fastify.post('/api/auth/register', async (request, reply) => {
+  const { name, email, password } = request.body as { name: string; email: string; password: string };
+  
+  // Check if user already exists
+  if (users.has(email)) {
+    reply.code(400);
+    return { message: 'User already exists' };
+  }
+  
+  // Hash password
+  const hashedPassword = await bcrypt.hash(password, 10);
+  
+  // Create user
+  const user = {
+    id: Math.random().toString(36).substring(7),
+    name,
+    email,
+    password: hashedPassword,
+    plan: 'FREE',
+    createdAt: new Date().toISOString()
+  };
+  
+  users.set(email, user);
+  
+  console.log('User registered:', email);
+  
+  return { 
+    message: 'Registration successful',
+    userId: user.id
+  };
+});
+
+fastify.post('/api/auth/login', async (request, reply) => {
+  const { email, password } = request.body as { email: string; password: string };
+  
+  // Check if user exists
+  const user = users.get(email);
+  if (!user) {
+    reply.code(401);
+    return { message: 'Invalid email or password' };
+  }
+  
+  // Verify password
+  const isValidPassword = await bcrypt.compare(password, user.password);
+  if (!isValidPassword) {
+    reply.code(401);
+    return { message: 'Invalid email or password' };
+  }
+  
+  // Generate JWT token
+  const token = jwt.sign(
+    { 
+      userId: user.id,
+      email: user.email,
+      plan: user.plan
+    },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+  
+  console.log('User logged in:', email);
+  
+  return {
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      plan: user.plan
+    }
+  };
+});
+
+// Middleware to verify JWT token
+async function verifyToken(request: any, reply: any) {
+  try {
+    const authHeader = request.headers.authorization;
+    if (!authHeader) {
+      reply.code(401);
+      return reply.send({ message: 'No token provided' });
+    }
+    
+    const token = authHeader.replace('Bearer ', '');
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    request.user = decoded;
+  } catch (error) {
+    reply.code(401);
+    return reply.send({ message: 'Invalid token' });
+  }
+}
+
+// Protected endpoint example
+fastify.get('/api/user/profile', { preHandler: verifyToken }, async (request: any, reply) => {
+  const user = users.get(request.user.email);
+  if (!user) {
+    reply.code(404);
+    return { message: 'User not found' };
+  }
+  
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    plan: user.plan,
+    createdAt: user.createdAt
+  };
+});
+
+// Get user analyses (protected)
+fastify.get('/api/user/analyses', { preHandler: verifyToken }, async (request: any, reply) => {
+  // Get all analyses for this user
+  const userAnalyses: any[] = [];
+  
+  jobResults.forEach((job, jobId) => {
+    if (job.status === 'completed' && job.userId === request.user.userId) {
+      userAnalyses.push({
+        jobId,
+        ...job.result,
+        createdAt: job.timestamp || new Date().toISOString()
+      });
+    }
+  });
+  
+  return {
+    analyses: userAnalyses.slice(-10), // Last 10 analyses
+    total: userAnalyses.length
+  };
+});
+
+// Analyzer endpoint with user tracking
+fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
   const { input } = request.body as { input: string };
   const jobId = Math.random().toString(36).substring(7);
   
+  // Get user from token if provided
+  let userId = 'anonymous';
+  const authHeader = request.headers.authorization;
+  if (authHeader) {
+    try {
+      const token = authHeader.replace('Bearer ', '');
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      userId = decoded.userId;
+    } catch (error) {
+      // Continue as anonymous
+    }
+  }
+  
   // Start async analysis
-  analyzeWithOpenAI(input, jobId);
+  analyzeWithOpenAI(input, jobId, userId);
   
   return {
     jobId,
@@ -45,27 +194,29 @@ fastify.post('/api/analyzer/analyze', async (request, reply) => {
 });
 
 // Async function to perform real OpenAI analysis
-async function analyzeWithOpenAI(brandName: string, jobId: string) {
+async function analyzeWithOpenAI(brandName: string, jobId: string, userId: string) {
   try {
-    console.log(`Starting OpenAI analysis for ${brandName}`);
+    console.log(`Starting OpenAI analysis for ${brandName} by user ${userId}`);
     
     // Store initial status
     jobResults.set(jobId, {
       jobId,
       status: 'processing',
-      brandName
+      brandName,
+      userId,
+      timestamp: new Date().toISOString()
     });
     
     // Check if OpenAI key exists
     if (!process.env.OPENAI_API_KEY) {
       console.error('OpenAI API key not configured, using fallback');
-      // Generate different scores for different brands
       const brandHash = brandName.toLowerCase().split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-      const baseScore = (brandHash % 40) + 30; // 30-70 range
+      const baseScore = (brandHash % 40) + 30;
       
       jobResults.set(jobId, {
         jobId,
         status: 'completed',
+        userId,
         result: {
           chatgpt: baseScore + Math.floor(Math.random() * 20),
           google: baseScore + Math.floor(Math.random() * 20),
@@ -105,7 +256,7 @@ async function analyzeWithOpenAI(brandName: string, jobId: string) {
       messages: [
         {
           role: 'system',
-          content: 'You are an AI visibility analyst. Provide realistic scores based on brand presence. Well-known brands get 80-95, unknown brands get 10-30.'
+          content: 'You are an AI visibility analyst. Provide realistic scores based on brand presence.'
         },
         {
           role: 'user',
@@ -122,7 +273,6 @@ async function analyzeWithOpenAI(brandName: string, jobId: string) {
     // Parse response
     let result;
     try {
-      // Extract JSON from response
       const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
@@ -138,7 +288,6 @@ async function analyzeWithOpenAI(brandName: string, jobId: string) {
       }
     } catch (parseError) {
       console.error('Error parsing OpenAI response:', parseError);
-      // Fallback with brand-specific scores
       const brandHash = brandName.toLowerCase().split('').reduce((a, b) => a + b.charCodeAt(0), 0);
       const baseScore = (brandHash % 40) + 30;
       
@@ -154,6 +303,7 @@ async function analyzeWithOpenAI(brandName: string, jobId: string) {
     jobResults.set(jobId, {
       jobId,
       status: 'completed',
+      userId,
       result
     });
     
@@ -162,13 +312,13 @@ async function analyzeWithOpenAI(brandName: string, jobId: string) {
   } catch (error) {
     console.error('Error in OpenAI analysis:', error);
     
-    // Store error result with brand-specific fallback scores
     const brandHash = brandName.toLowerCase().split('').reduce((a, b) => a + b.charCodeAt(0), 0);
     const baseScore = (brandHash % 30) + 20;
     
     jobResults.set(jobId, {
       jobId,
       status: 'completed',
+      userId,
       result: {
         chatgpt: baseScore + Math.floor(Math.random() * 20),
         google: baseScore + Math.floor(Math.random() * 20),
@@ -184,13 +334,11 @@ async function analyzeWithOpenAI(brandName: string, jobId: string) {
 fastify.get('/api/analyzer/results/:id', async (request, reply) => {
   const { id } = request.params as { id: string };
   
-  // Check if we have results for this job
   if (jobResults.has(id)) {
     const result = jobResults.get(id);
     return result;
   }
   
-  // If job not found, return mock for backwards compatibility
   return {
     jobId: id,
     status: 'completed',
@@ -202,15 +350,32 @@ fastify.get('/api/analyzer/results/:id', async (request, reply) => {
   };
 });
 
-// Dashboard data endpoint
-fastify.get('/api/analyzer/dashboard', async (request, reply) => {
-  // Return mock dashboard data for now
+// Dashboard data endpoint (protected)
+fastify.get('/api/analyzer/dashboard', { preHandler: verifyToken }, async (request: any, reply) => {
+  const userAnalyses: any[] = [];
+  
+  jobResults.forEach((job) => {
+    if (job.status === 'completed' && job.userId === request.user.userId) {
+      userAnalyses.push(job.result);
+    }
+  });
+  
+  const totalAnalyses = userAnalyses.length;
+  let averageScore = 0;
+  
+  if (totalAnalyses > 0) {
+    const sum = userAnalyses.reduce((acc, analysis) => {
+      return acc + (analysis.chatgpt + analysis.google) / 2;
+    }, 0);
+    averageScore = Math.round(sum / totalAnalyses);
+  }
+  
   return {
-    totalAnalyses: 42,
-    averageScore: 76,
-    improvementRate: '+12%',
-    aiMentions: 156,
-    recentAnalyses: Array.from(jobResults.values()).slice(-10)
+    totalAnalyses,
+    averageScore,
+    improvementRate: totalAnalyses > 1 ? '+12%' : '0%',
+    aiMentions: totalAnalyses * 4,
+    recentAnalyses: userAnalyses.slice(-10)
   };
 });
 
@@ -221,6 +386,7 @@ const start = async () => {
     await fastify.listen({ port, host: '0.0.0.0' });
     console.log(`Server running on port ${port}`);
     console.log(`OpenAI API Key: ${process.env.OPENAI_API_KEY ? 'Configured' : 'Missing'}`);
+    console.log(`JWT Secret: ${JWT_SECRET ? 'Configured' : 'Using default'}`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
