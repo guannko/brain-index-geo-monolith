@@ -9,5 +9,8 @@ export const env = {
   CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
   RL_ANALYZE_PER_MIN: Number(process.env.RL_ANALYZE_PER_MIN || 50),
   CACHE_TTL: Number(process.env.CACHE_TTL || 3600),
-  JWT_SECRET: process.env.JWT_SECRET || 'secret'
+  JWT_SECRET: process.env.JWT_SECRET || 'secret',
+  // Qdrant configuration for RAG Pipeline
+  QDRANT_URL: process.env.QDRANT_URL || 'http://localhost:6333',
+  QDRANT_API_KEY: process.env.QDRANT_API_KEY || '',
 };
