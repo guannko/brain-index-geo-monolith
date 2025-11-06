@@ -16,20 +16,29 @@ interface SearchResult {
 }
 
 export class ContextService {
-  private client: QdrantClient;
+  private client: QdrantClient | null = null;
   private collectionName = 'brain-index-documents';
+  private isInitialized = false;
 
   constructor() {
-    this.client = new QdrantClient({
-      url: env.QDRANT_URL || 'http://localhost:6333',
-      apiKey: env.QDRANT_API_KEY,
-    });
+    // Initialize client only if Qdrant is configured
+    if (env.QDRANT_URL && env.QDRANT_URL !== 'http://qdrant-ma8b.railway.internal:6333') {
+      this.client = new QdrantClient({
+        url: env.QDRANT_URL,
+        apiKey: env.QDRANT_API_KEY,
+      });
+    }
   }
 
   /**
    * Initialize Qdrant collection
    */
   async initialize(): Promise<void> {
+    if (!this.client) {
+      console.log('⚠️ RAG Pipeline disabled - Qdrant not configured or using internal Railway URL');
+      return;
+    }
+
     try {
       const collections = await this.client.getCollections();
       const exists = collections.collections.some(
@@ -47,9 +56,12 @@ export class ContextService {
       } else {
         console.log(`✅ Qdrant collection "${this.collectionName}" exists`);
       }
+      
+      this.isInitialized = true;
     } catch (error) {
       console.error('❌ Qdrant initialization failed:', error);
-      throw error;
+      console.log('⚠️ RAG Pipeline will be disabled for this session');
+      this.client = null;
     }
   }
 
@@ -57,6 +69,11 @@ export class ContextService {
    * Ingest documents into Qdrant
    */
   async ingestDocuments(documents: Document[]): Promise<void> {
+    if (!this.client || !this.isInitialized) {
+      console.log('⚠️ RAG Pipeline not available - skipping document ingestion');
+      return;
+    }
+
     try {
       const points = await Promise.all(
         documents.map(async (doc, index) => {
@@ -82,7 +99,6 @@ export class ContextService {
       console.log(`✅ Ingested ${documents.length} documents into Qdrant`);
     } catch (error) {
       console.error('❌ Document ingestion failed:', error);
-      throw error;
     }
   }
 
@@ -90,6 +106,10 @@ export class ContextService {
    * Search for relevant documents using vector similarity
    */
   async search(query: string, limit = 5): Promise<SearchResult[]> {
+    if (!this.client || !this.isInitialized) {
+      return [];
+    }
+
     try {
       const queryEmbedding = await this.generateEmbedding(query);
 
@@ -107,7 +127,7 @@ export class ContextService {
       }));
     } catch (error) {
       console.error('❌ Search failed:', error);
-      throw error;
+      return [];
     }
   }
 
@@ -115,10 +135,14 @@ export class ContextService {
    * Generate context for a given query
    */
   async generateContext(query: string, maxResults = 3): Promise<string> {
+    if (!this.client || !this.isInitialized) {
+      return '';
+    }
+
     const results = await this.search(query, maxResults);
 
     if (results.length === 0) {
-      return 'No relevant context found.';
+      return '';
     }
 
     const context = results
@@ -147,14 +171,25 @@ ${result.content}`;
    * Delete all documents from collection
    */
   async clearCollection(): Promise<void> {
+    if (!this.client || !this.isInitialized) {
+      console.log('⚠️ RAG Pipeline not available - cannot clear collection');
+      return;
+    }
+
     try {
       await this.client.deleteCollection(this.collectionName);
       await this.initialize();
       console.log(`✅ Collection "${this.collectionName}" cleared`);
     } catch (error) {
       console.error('❌ Clear collection failed:', error);
-      throw error;
     }
+  }
+
+  /**
+   * Check if RAG is available
+   */
+  isAvailable(): boolean {
+    return this.isInitialized && this.client !== null;
   }
 }
 
