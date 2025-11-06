@@ -3,17 +3,21 @@ import cors from '@fastify/cors';
 import { OpenAI } from 'openai';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { contextService } from './services/context.service.js';
+import { gEvalService } from './services/g-eval.service.js';
 
 const fastify = Fastify({
   logger: true
 });
 
-// Initialize OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || ''
-});
+// Initialize OpenAI (shared instance)
+import { openai } from './shared/openai.js';
 
-// Temporary in-memory storage
+// Initialize RAG Pipeline
+await contextService.initialize();
+console.log('✅ RAG Pipeline initialized with Qdrant');
+
+// Temporary in-memory storage (for now keeping jobResults and users)
 const jobResults = new Map();
 const users = new Map();
 
@@ -30,7 +34,7 @@ function isURL(str: string): boolean {
   const patterns = [
     /^https?:\/\//,
     /^www\./,
-    /\.(com|org|net|io|dev|ai|app|co|uk|de|fr|ru|cn|jp|br|in|it|es|ca|au|nl|pl|ch|se|no|fi|dk|be|at|cz|hu|ro|gr|pt|il|sg|hk|tw|kr|mx|ar|cl|co\.uk|co\.jp|com\.au|com\.br)(\/.+)?$/i
+    /\.(com|org|net|io|dev|ai|app|co|uk|de|fr|ru|cn|jp|br|in|it|es|ca|au|nl|pl|ch|se|no|fi|dk|be|at|cz|hu|ro|gr|pt|il|sg|hk|tw|kr|mx|ar|cl|co\.uk|co\.jp|com\.au|com\.br)(\/.*)?$/i
   ];
   return patterns.some(pattern => pattern.test(str));
 }
@@ -58,9 +62,10 @@ fastify.get('/health', async (request, reply) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     service: 'brain-index-geo-monolith',
-    database: 'in-memory',
+    database: 'RAG Pipeline (Qdrant)', // Updated from in-memory
     openai: process.env.OPENAI_API_KEY ? 'configured' : 'missing',
-    features: 'URL + Brand combined analysis'
+    qdrant: process.env.QDRANT_URL ? 'configured' : 'using localhost:6333',
+    features: 'URL + Brand combined analysis with RAG context'
   };
 });
 
@@ -181,7 +186,7 @@ fastify.get('/api/user/analyses', { preHandler: verifyToken }, async (request: a
   };
 });
 
-// COMBINED ANALYZER - Analyzes both brand AND website together!
+// COMBINED ANALYZER with RAG - Analyzes both brand AND website with context!
 fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
   const { input } = request.body as { input: string };
   const jobId = Math.random().toString(36).substring(7);
@@ -211,8 +216,8 @@ fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
     }
   }
   
-  // Start async analysis
-  analyzeWithOpenAI(brandName, domain, jobId, userId, userEmail);
+  // Start async analysis with RAG
+  analyzeWithRAG(brandName, domain, jobId, userId, userEmail);
   
   return {
     jobId,
@@ -223,10 +228,10 @@ fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
   };
 });
 
-// COMBINED OpenAI analysis - brand + website together
-async function analyzeWithOpenAI(brandName: string, domain: string | null, jobId: string, userId: string, userEmail: string | null) {
+// NEW: RAG-enhanced analysis function
+async function analyzeWithRAG(brandName: string, domain: string | null, jobId: string, userId: string, userEmail: string | null) {
   try {
-    console.log(`Starting combined analysis - Brand: ${brandName}, Domain: ${domain || 'none'}`);
+    console.log(`Starting RAG-enhanced analysis - Brand: ${brandName}, Domain: ${domain || 'none'}`);
     
     // Store initial status
     jobResults.set(jobId, {
@@ -250,15 +255,9 @@ async function analyzeWithOpenAI(brandName: string, domain: string | null, jobId
         timestamp: new Date().toISOString(),
         brandName,
         domain,
-        analysis: domain ? 
-          `Combined analysis for ${brandName} and ${domain}. Brand recognition is moderate. Website needs better SEO optimization and more authoritative backlinks to improve AI visibility.` :
-          `Brand ${brandName} analysis completed with moderate visibility scores.`,
-        recommendations: domain ? [
-          'Create more structured content with Schema.org markup',
-          'Get cited in Wikipedia or industry publications',
-          'Improve domain authority through quality backlinks',
-          'Ensure content is easily crawlable by AI systems'
-        ] : []
+        analysis: 'RAG Pipeline not available - using basic scoring',
+        recommendations: [],
+        ragContext: 'Not available'
       };
       
       jobResults.set(jobId, {
@@ -272,12 +271,22 @@ async function analyzeWithOpenAI(brandName: string, domain: string | null, jobId
       return;
     }
     
-    // COMBINED PROMPT for brand + website
+    // STEP 1: Get relevant context from RAG
+    const ragQuery = domain ? 
+      `${brandName} brand visibility ${domain} website AI optimization` :
+      `${brandName} brand visibility AI systems`;
+    
+    const ragContext = await contextService.generateContext(ragQuery, 3);
+    console.log('RAG Context retrieved:', ragContext.length > 0 ? 'Found relevant context' : 'No context found');
+    
+    // STEP 2: Enhanced prompt with RAG context
     let prompt: string;
     
     if (domain) {
-      // Analyzing BOTH brand and website
+      // Analyzing BOTH brand and website with context
       prompt = `Analyze the AI visibility for the brand "${brandName}" and its website "${domain}".
+      
+      ${ragContext.length > 0 ? `Relevant context from knowledge base:\n${ragContext}\n\n` : ''}
       
       Provide comprehensive analysis with scores from 0-100 for:
       1. ChatGPT visibility - How likely ChatGPT would mention this brand AND reference the website
@@ -307,11 +316,14 @@ async function analyzeWithOpenAI(brandName: string, domain: string | null, jobId
         "brand_strength": <number 0-100>,
         "website_strength": <number 0-100>,
         "analysis": "<detailed analysis of both brand and website>",
-        "recommendations": ["<specific action 1>", "<specific action 2>", "<specific action 3>"]
+        "recommendations": ["<specific action 1>", "<specific action 2>", "<specific action 3>"],
+        "context_used": <boolean indicating if provided context was relevant>
       }`;
     } else {
-      // Brand only analysis
+      // Brand only analysis with context
       prompt = `Analyze the brand visibility of "${brandName}" in AI systems.
+      
+      ${ragContext.length > 0 ? `Relevant context from knowledge base:\n${ragContext}\n\n` : ''}
       
       Rate from 0-100 for:
       1. ChatGPT visibility - how well this brand would be represented in ChatGPT responses
@@ -325,17 +337,18 @@ async function analyzeWithOpenAI(brandName: string, domain: string | null, jobId
       {
         "chatgpt_score": <number 0-100>,
         "google_score": <number 0-100>,
-        "analysis": "<brief explanation>"
+        "analysis": "<brief explanation>",
+        "context_used": <boolean indicating if provided context was relevant>
       }`;
     }
     
-    // Call OpenAI API
+    // STEP 3: Call OpenAI API with enhanced prompt
     const response = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
         {
           role: 'system',
-          content: 'You are an expert in brand visibility and website AI optimization. Provide realistic scores and actionable advice.'
+          content: 'You are an expert in brand visibility and website AI optimization with access to a knowledge base. Use the provided context when relevant.'
         },
         {
           role: 'user',
@@ -347,14 +360,24 @@ async function analyzeWithOpenAI(brandName: string, domain: string | null, jobId
     });
     
     const responseContent = response.choices[0].message.content || '{}';
-    console.log('OpenAI response:', responseContent);
+    console.log('OpenAI response received');
     
-    // Parse response
+    // STEP 4: Parse response and add groundedness score
     let result;
     try {
       const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
+        
+        // Calculate groundedness if context was used
+        let groundednessScore = null;
+        if (parsed.context_used && ragContext.length > 0) {
+          groundednessScore = await gEvalService.evaluateGroundedness(
+            responseContent,
+            ragContext
+          );
+        }
+        
         result = {
           chatgpt: parsed.chatgpt_score || Math.floor(Math.random() * 100),
           google: parsed.google_score || Math.floor(Math.random() * 100),
@@ -365,7 +388,10 @@ async function analyzeWithOpenAI(brandName: string, domain: string | null, jobId
           recommendations: parsed.recommendations || [],
           brandName,
           domain,
-          type: domain ? 'combined' : 'brand-only'
+          type: domain ? 'combined' : 'brand-only',
+          ragContext: ragContext.length > 0 ? 'Context found and used' : 'No relevant context found',
+          groundednessScore,
+          contextUsed: parsed.context_used || false
         };
       } else {
         throw new Error('No JSON found in response');
@@ -381,8 +407,27 @@ async function analyzeWithOpenAI(brandName: string, domain: string | null, jobId
         timestamp: new Date().toISOString(),
         brandName,
         domain,
-        type: domain ? 'combined' : 'brand-only'
+        type: domain ? 'combined' : 'brand-only',
+        ragContext: 'Error processing response'
       };
+    }
+    
+    // STEP 5: Store analysis in RAG for future reference
+    if (result.analysis && result.analysis !== 'Error processing response') {
+      await contextService.ingestDocuments([{
+        id: `analysis-${jobId}`,
+        content: `Brand: ${brandName}${domain ? `, Website: ${domain}` : ''}\nAnalysis: ${result.analysis}\nChatGPT Score: ${result.chatgpt}, Google Score: ${result.google}`,
+        metadata: {
+          type: 'analysis',
+          brandName,
+          domain,
+          timestamp: new Date().toISOString(),
+          scores: {
+            chatgpt: result.chatgpt,
+            google: result.google
+          }
+        }
+      }]);
     }
     
     // Store result
@@ -395,10 +440,10 @@ async function analyzeWithOpenAI(brandName: string, domain: string | null, jobId
     
     saveToUserAnalyses(userEmail, result);
     
-    console.log(`Analysis completed for ${brandName} (${domain || 'no domain'}):`, result);
+    console.log(`RAG-enhanced analysis completed for ${brandName} (${domain || 'no domain'})`);
     
   } catch (error) {
-    console.error('Error in OpenAI analysis:', error);
+    console.error('Error in RAG-enhanced analysis:', error);
     
     const inputHash = brandName.toLowerCase().split('').reduce((a, b) => a + b.charCodeAt(0), 0);
     const baseScore = domain ? (inputHash % 30) + 20 : (inputHash % 35) + 25;
@@ -414,7 +459,8 @@ async function analyzeWithOpenAI(brandName: string, domain: string | null, jobId
         error: 'Analysis failed, using estimated scores',
         brandName,
         domain,
-        type: domain ? 'combined' : 'brand-only'
+        type: domain ? 'combined' : 'brand-only',
+        ragContext: 'Error in RAG pipeline'
       }
     });
   }
@@ -479,6 +525,38 @@ fastify.get('/api/analyzer/dashboard', { preHandler: verifyToken }, async (reque
   };
 });
 
+// NEW: RAG management endpoints (admin only)
+fastify.post('/api/rag/ingest', { preHandler: verifyToken }, async (request: any, reply) => {
+  // Check if user is admin (you can add this field to user object)
+  const user = users.get(request.user.email);
+  if (!user || user.plan !== 'ADMIN') {
+    reply.code(403);
+    return { message: 'Admin access required' };
+  }
+  
+  const { documents } = request.body as { documents: Array<{id?: string, content: string, metadata?: any}> };
+  
+  try {
+    await contextService.ingestDocuments(documents);
+    return { success: true, message: `Ingested ${documents.length} documents` };
+  } catch (error: any) {
+    reply.code(500);
+    return { success: false, error: error.message };
+  }
+});
+
+fastify.post('/api/rag/search', async (request, reply) => {
+  const { query, limit = 5 } = request.body as { query: string, limit?: number };
+  
+  try {
+    const results = await contextService.search(query, limit);
+    return { success: true, results };
+  } catch (error: any) {
+    reply.code(500);
+    return { success: false, error: error.message };
+  }
+});
+
 // Start server
 const start = async () => {
   try {
@@ -487,8 +565,8 @@ const start = async () => {
     console.log(`Server running on port ${port}`);
     console.log(`OpenAI API Key: ${process.env.OPENAI_API_KEY ? 'Configured' : 'Missing'}`);
     console.log(`JWT Secret: ${JWT_SECRET ? 'Configured' : 'Using default'}`);
-    console.log('COMBINED Analysis: Brand + Website together!');
-    console.log('Using in-memory storage (temporary)');
+    console.log(`Qdrant URL: ${process.env.QDRANT_URL || 'http://localhost:6333'}`);
+    console.log('✅ RAG-Enhanced Analysis: Brand + Website with context retrieval!');
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
