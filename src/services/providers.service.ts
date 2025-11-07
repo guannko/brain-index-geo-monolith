@@ -48,11 +48,11 @@ class ProvidersService {
         model: 'mistral-small-latest'
       },
       {
-        name: 'groq',
-        enabled: !!process.env.GROQ_API_KEY,
-        apiKey: process.env.GROQ_API_KEY,
-        baseURL: 'https://api.groq.com/openai/v1',
-        model: 'llama-3.1-8b-instant'
+        name: 'grok',
+        enabled: !!process.env.GROK_API_KEY,
+        apiKey: process.env.GROK_API_KEY,
+        baseURL: 'https://api.x.ai/v1',
+        model: 'grok-4-fast-reasoning'
       },
       {
         name: 'gemini',
@@ -85,7 +85,7 @@ class ProvidersService {
       openai: 'gpt-3.5-turbo',
       deepseek: 'deepseek-chat',
       mistral: 'mistral-small-latest',
-      groq: 'llama-3.1-8b-instant',
+      grok: 'grok-4-fast-reasoning',
       gemini: 'gemini-1.5-flash'
     };
     return models[providerName] || 'gpt-3.5-turbo';
@@ -128,8 +128,8 @@ class ProvidersService {
         const parsed = JSON.parse(jsonMatch[0]);
         return {
           provider: providerName,
-          chatgpt_score: parsed.chatgpt_score || 0,
-          google_score: parsed.google_score || 0,
+          chatgpt_score: parsed.chatgpt_score || parsed.score || 0,
+          google_score: parsed.google_score || parsed.score || 0,
           brand_strength: parsed.brand_strength,
           website_strength: parsed.website_strength,
           analysis: parsed.analysis || 'No analysis provided',
