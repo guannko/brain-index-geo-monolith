@@ -14,6 +14,7 @@ export const env = {
   QDRANT_URL: process.env.QDRANT_URL || 'http://localhost:6333',
   QDRANT_API_KEY: process.env.QDRANT_API_KEY || '',
   // AI Provider API Keys
+  DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY || '',
   MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
   GROK_API_KEY: process.env.GROK_API_KEY || '',
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
