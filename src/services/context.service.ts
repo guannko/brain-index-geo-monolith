@@ -1,6 +1,7 @@
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { openai } from '../shared/openai.js';
 import { env } from '../config/env.js';
+import { randomUUID } from 'crypto';
 
 interface Document {
   id: string;
@@ -96,11 +97,17 @@ export class ContextService {
           // Generate embedding using OpenAI
           const embedding = await this.generateEmbedding(doc.content);
 
+          // Generate valid UUID for Qdrant
+          const validId = doc.id && this.isValidUUID(doc.id) 
+            ? doc.id 
+            : randomUUID();
+
           return {
-            id: doc.id || `doc-${index}`,
+            id: validId,
             vector: embedding,
             payload: {
               content: doc.content,
+              originalId: doc.id, // Store original ID in payload
               ...doc.metadata,
             },
           };
@@ -116,6 +123,14 @@ export class ContextService {
     } catch (error) {
       console.error('❌ Document ingestion failed:', error);
     }
+  }
+
+  /**
+   * Check if string is valid UUID
+   */
+  private isValidUUID(str: string): boolean {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(str);
   }
 
   /**
