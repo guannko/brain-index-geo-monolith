@@ -13,4 +13,8 @@ export const env = {
   // Qdrant configuration for RAG Pipeline
   QDRANT_URL: process.env.QDRANT_URL || 'http://localhost:6333',
   QDRANT_API_KEY: process.env.QDRANT_API_KEY || '',
+  // AI Provider API Keys
+  MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
+  GROK_API_KEY: process.env.GROK_API_KEY || '',
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
 };
