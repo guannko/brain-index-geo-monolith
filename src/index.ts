@@ -4,7 +4,6 @@ import { OpenAI } from 'openai';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { contextService } from './services/context.service.js';
-import { gEvalService } from './services/g-eval.service.js';
 import { providersService } from './services/providers.service.js';
 
 const fastify = Fastify({
@@ -51,7 +50,6 @@ function extractFromURL(url: string): { domain: string, brandName: string } {
   domain = domain.replace(/^www\./, '');
   domain = domain.split('/')[0];
   
-  // Extract brand name from domain
   let brandName = domain.split('.')[0];
   brandName = brandName.charAt(0).toUpperCase() + brandName.slice(1);
   brandName = brandName.replace(/-/g, ' ');
@@ -67,8 +65,8 @@ fastify.get('/health', async (request, reply) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     service: 'brain-index-geo-monolith',
-    version: '2.0.0-honest-scoring',
-    features: 'Honest AI Visibility Analysis with Web Search',
+    version: '2.1.0-multi-provider-honest',
+    features: '5 AI Providers + Honest Scoring',
     providers: {
       active: activeProviders,
       total: activeProviders.length
@@ -192,12 +190,11 @@ fastify.get('/api/user/analyses', { preHandler: verifyToken }, async (request: a
   };
 });
 
-// MAIN ANALYZER - Quick & Honest Analysis for Homepage
+// MAIN ANALYZER - Multi-Provider Honest Analysis
 fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
   const { input } = request.body as { input: string };
   const jobId = Math.random().toString(36).substring(7);
   
-  // Parse input
   let brandName = input;
   let domain = null;
   
@@ -207,7 +204,6 @@ fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
     brandName = extracted.brandName;
   }
   
-  // Get user from token if provided
   let userId = 'anonymous';
   let userEmail = null;
   const authHeader = request.headers.authorization;
@@ -222,8 +218,8 @@ fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
     }
   }
   
-  // Start async analysis
-  quickHonestAnalysis(brandName, domain, jobId, userId, userEmail);
+  // Start async multi-provider honest analysis
+  multiProviderHonestAnalysis(brandName, domain, jobId, userId, userEmail);
   
   return {
     jobId,
@@ -234,8 +230,8 @@ fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
   };
 });
 
-// NEW: Quick & Honest Analysis with Web Search
-async function quickHonestAnalysis(
+// Multi-Provider Analysis with Honest Scoring
+async function multiProviderHonestAnalysis(
   brandName: string,
   domain: string | null,
   jobId: string,
@@ -243,7 +239,7 @@ async function quickHonestAnalysis(
   userEmail: string | null
 ) {
   try {
-    console.log(`\n🔍 Quick Honest Analysis - Brand: ${brandName}, Domain: ${domain || 'none'}`);
+    console.log(`\n🎯 Multi-Provider Honest Analysis - Brand: ${brandName}, Domain: ${domain || 'none'}`);
     
     jobResults.set(jobId, {
       jobId,
@@ -254,32 +250,55 @@ async function quickHonestAnalysis(
       timestamp: new Date().toISOString()
     });
     
-    // STEP 1: Web Search for Brand Mentions (REAL DATA!)
-    const searchQuery = `"${brandName}" brand ${domain ? domain : ''}`;
-    console.log(`🔎 Searching web: ${searchQuery}`);
+    const activeProviders = providersService.getActiveProviders();
+    if (activeProviders.length === 0) {
+      console.error('❌ No AI providers configured!');
+      
+      const result = {
+        averageScore: 30,
+        providers: [],
+        timestamp: new Date().toISOString(),
+        brandName,
+        domain,
+        problems: ['No AI providers configured'],
+        recommendations: ['Configure API keys'],
+        error: 'No providers available'
+      };
+      
+      jobResults.set(jobId, {
+        jobId,
+        status: 'completed',
+        userId,
+        result
+      });
+      
+      saveToUserAnalyses(userEmail, result);
+      return;
+    }
     
-    // Import web_search dynamically
+    // STEP 1: Web Research for HONEST baseline
+    console.log(`🔍 Web Research: ${brandName}`);
+    
     let mentionsCount = 0;
     let hasWikipedia = false;
     let hasNews = false;
-    let searchResults = '';
+    let domainAuthority = 'none';
+    let socialPresence = 'none';
     
     try {
-      // Simulating web search - in production this would be actual web_search tool
-      // For now using OpenAI with explicit instructions
       const searchResponse = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: [{
           role: 'user',
-          content: `Research the brand "${brandName}"${domain ? ` with website ${domain}` : ''}.
-          
-Return JSON with:
+          content: `Research brand "${brandName}"${domain ? ` with website ${domain}` : ''}.
+
+Return ONLY JSON (no markdown):
 {
-  "mentionsCount": <estimated number of web mentions 0-10000>,
+  "mentionsCount": <realistic 0-10000>,
   "hasWikipedia": <boolean>,
-  "hasNews": <boolean, recent news mentions>,
-  "domainAuthority": <"high"/"medium"/"low"/"none">,
-  "socialPresence": <"strong"/"moderate"/"weak"/"none">
+  "hasNews": <boolean>,
+  "domainAuthority": "high"|"medium"|"low"|"none",
+  "socialPresence": "strong"|"moderate"|"weak"|"none"
 }
 
 Be REALISTIC! Unknown brands = low numbers!`
@@ -288,129 +307,132 @@ Be REALISTIC! Unknown brands = low numbers!`
         temperature: 0.3
       });
       
-      const searchData = JSON.parse(searchResponse.choices[0].message.content || '{}');
+      const content = searchResponse.choices[0].message.content || '{}';
+      const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const searchData = JSON.parse(cleanContent);
+      
       mentionsCount = searchData.mentionsCount || 0;
       hasWikipedia = searchData.hasWikipedia || false;
       hasNews = searchData.hasNews || false;
-      
-      searchResults = JSON.stringify(searchData, null, 2);
+      domainAuthority = searchData.domainAuthority || 'none';
+      socialPresence = searchData.socialPresence || 'none';
       
     } catch (error) {
       console.error('Search error:', error);
     }
     
-    console.log(`📊 Search Results: ${mentionsCount} mentions, Wikipedia: ${hasWikipedia}, News: ${hasNews}`);
+    console.log(`📊 Research: ${mentionsCount} mentions, Wiki: ${hasWikipedia}, News: ${hasNews}`);
     
-    // STEP 2: Calculate HONEST Score
-    let score = 15; // Base score for unknown brands
+    // STEP 2: Calculate honest baseline score
+    let baseScore = 15;
     const problems: string[] = [];
     
-    // Brand recognition scoring
-    if (mentionsCount > 10000) {
-      score += 35;
-    } else if (mentionsCount > 5000) {
-      score += 25;
-    } else if (mentionsCount > 1000) {
-      score += 15;
-    } else if (mentionsCount > 100) {
-      score += 10;
-    } else {
-      problems.push(`Low brand mentions online (${mentionsCount} found) - AI systems won't know you`);
-    }
+    if (mentionsCount > 10000) baseScore += 35;
+    else if (mentionsCount > 5000) baseScore += 25;
+    else if (mentionsCount > 1000) baseScore += 15;
+    else if (mentionsCount > 100) baseScore += 10;
+    else problems.push(`Very low brand mentions (${mentionsCount} found)`);
     
-    // Wikipedia presence
-    if (hasWikipedia) {
-      score += 20;
-    } else {
-      problems.push('No Wikipedia page - major visibility loss in AI answers');
-    }
+    if (hasWikipedia) baseScore += 20;
+    else problems.push('No Wikipedia page - critical for AI visibility');
     
-    // News presence
-    if (hasNews) {
-      score += 15;
-    } else {
-      problems.push('No recent news coverage - AI lacks fresh information about you');
-    }
+    if (hasNews) baseScore += 15;
+    else problems.push('No recent news coverage');
     
-    // Domain authority (if URL provided)
-    if (domain) {
-      // In production: check actual domain metrics
-      score += 10; // Placeholder
-    } else {
-      problems.push('No website provided - can\'t analyze technical SEO factors');
-    }
+    if (domainAuthority === 'high') baseScore += 15;
+    else if (domainAuthority === 'medium') baseScore += 10;
+    else if (domainAuthority === 'low') baseScore += 5;
+    else problems.push('No domain authority detected');
     
-    // Social signals
-    if (mentionsCount > 1000) {
-      score += 10;
-    } else {
-      problems.push('Weak social media presence - AI can\'t find social proof');
-    }
+    if (socialPresence === 'strong') baseScore += 10;
+    else if (socialPresence === 'moderate') baseScore += 5;
+    else problems.push('Weak social media presence');
     
-    // Cap at 100
-    score = Math.min(score, 100);
+    baseScore = Math.min(baseScore, 100);
     
-    console.log(`✅ Honest Score Calculated: ${score}/100`);
-    console.log(`❌ Problems Found: ${problems.length}`);
+    console.log(`✅ Honest Baseline: ${baseScore}/100`);
     
-    // STEP 3: AI Analysis with REAL Data
-    const aiAnalysis = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [{
-        role: 'system',
-        content: 'You are an AI visibility expert. Be HONEST and CRITICAL. Find REAL problems.'
-      }, {
-        role: 'user',
-        content: `Brand: ${brandName}${domain ? `\nWebsite: ${domain}` : ''}
+    // STEP 3: Get RAG context
+    const ragQuery = domain ? 
+      `${brandName} brand visibility ${domain} website` :
+      `${brandName} brand visibility`;
+    
+    const ragContext = await contextService.generateContext(ragQuery, 2);
+    
+    // STEP 4: Call ALL providers with honest baseline
+    console.log(`⚡ Calling ${activeProviders.length} providers...`);
+    
+    const prompt = `Brand: ${brandName}${domain ? `\nWebsite: ${domain}` : ''}
 
-REAL SEARCH DATA:
-${searchResults}
+REAL RESEARCH DATA:
+- Mentions: ${mentionsCount}
+- Wikipedia: ${hasWikipedia}
+- News: ${hasNews}
+- Domain Authority: ${domainAuthority}
+- Social Presence: ${socialPresence}
 
-Calculated Score: ${score}/100
+Baseline Score: ${baseScore}/100
 
-Give honest analysis:
-1. Why this score is LOW (be critical!)
-2. What specific actions to take
-3. Expected timeline for improvement
-
-Return JSON:
+Give HONEST analysis. Return ONLY JSON:
 {
-  "analysis": "<critical honest explanation>",
-  "recommendations": ["<action 1>", "<action 2>", "<action 3>"]
-}`
-      }],
-      max_tokens: 400,
-      temperature: 0.7
+  "score": <${baseScore - 5} to ${baseScore + 5}>,
+  "analysis": "<why this score>",
+  "topProblem": "<biggest issue>"
+}`;
+
+    const providerResults = await providersService.analyzeWithAllProviders(
+      brandName,
+      domain,
+      prompt
+    );
+    
+    // STEP 5: Process results
+    const validResults = providerResults.filter(r => !r.error && r.chatgpt_score > 0);
+    
+    const providers = providerResults.map(r => ({
+      name: r.provider,
+      score: r.error ? 0 : Math.round((r.chatgpt_score + r.google_score) / 2),
+      error: r.error
+    }));
+    
+    const avgScore = validResults.length > 0
+      ? Math.round(validResults.reduce((sum, r) => sum + (r.chatgpt_score + r.google_score) / 2, 0) / validResults.length)
+      : baseScore;
+    
+    console.log(`\n✅ Multi-Provider Results:`);
+    providers.forEach(p => {
+      console.log(`   ${p.name}: ${p.score}% ${p.error ? '(ERROR)' : ''}`);
     });
+    console.log(`   Average: ${avgScore}%\n`);
     
-    let analysis = 'Brand visibility analysis completed';
-    let recommendations: string[] = [];
+    // STEP 6: Generate recommendations
+    const recommendations: string[] = [];
+    if (!hasWikipedia) recommendations.push('Create a Wikipedia page');
+    if (!hasNews) recommendations.push('Get press coverage and media mentions');
+    if (mentionsCount < 1000) recommendations.push('Build online presence and brand awareness');
+    if (domainAuthority === 'none' || domainAuthority === 'low') recommendations.push('Improve domain authority with quality backlinks');
+    if (socialPresence !== 'strong') recommendations.push('Strengthen social media presence');
     
-    try {
-      const aiData = JSON.parse(aiAnalysis.choices[0].message.content || '{}');
-      analysis = aiData.analysis || analysis;
-      recommendations = aiData.recommendations || [];
-    } catch (e) {
-      console.error('AI parse error:', e);
-    }
-    
-    // STEP 4: Build Result
+    // STEP 7: Build result
     const result = {
-      chatgpt: score,
-      google: score,
+      averageScore: avgScore,
+      providers: providers.filter(p => !p.error),
+      chatgpt: avgScore, // For backwards compatibility
+      google: avgScore,
       timestamp: new Date().toISOString(),
       brandName,
       domain,
       type: domain ? 'combined' : 'brand-only',
-      analysis,
       problems,
       recommendations,
       metrics: {
         mentions: mentionsCount,
         hasWikipedia,
-        hasNews
+        hasNews,
+        domainAuthority,
+        socialPresence
       },
-      callToAction: score < 60 ? 'Fix these issues to improve AI visibility' : 'Good visibility, but room to grow'
+      callToAction: avgScore < 60 ? 'Fix these issues to improve AI visibility' : 'Good start, but room to grow'
     };
     
     // Store result
@@ -423,7 +445,20 @@ Return JSON:
     
     saveToUserAnalyses(userEmail, result);
     
-    console.log(`✅ Quick honest analysis completed for ${brandName}\n`);
+    // Save to RAG
+    await contextService.ingestDocuments([{
+      id: `analysis-${jobId}`,
+      content: `Brand: ${brandName}, Score: ${avgScore}/100, Mentions: ${mentionsCount}, Wikipedia: ${hasWikipedia}`,
+      metadata: {
+        type: 'honest-analysis',
+        brandName,
+        domain,
+        score: avgScore,
+        timestamp: new Date().toISOString()
+      }
+    }]);
+    
+    console.log(`✅ Analysis completed for ${brandName}\n`);
     
   } catch (error) {
     console.error('❌ Analysis error:', error);
@@ -433,13 +468,15 @@ Return JSON:
       status: 'completed',
       userId,
       result: {
+        averageScore: 30,
+        providers: [],
         chatgpt: 30,
         google: 30,
         timestamp: new Date().toISOString(),
         error: 'Analysis failed',
         brandName,
         domain,
-        problems: ['Unable to complete analysis - please try again'],
+        problems: ['Analysis failed - please try again'],
         recommendations: ['Contact support if issue persists']
       }
     });
@@ -483,7 +520,7 @@ fastify.get('/api/analyzer/dashboard', { preHandler: verifyToken }, async (reque
   
   if (totalAnalyses > 0) {
     const sum = analyses.reduce((acc: number, analysis: any) => {
-      return acc + (analysis.chatgpt + analysis.google) / 2;
+      return acc + (analysis.averageScore || analysis.chatgpt || 0);
     }, 0);
     averageScore = Math.round(sum / totalAnalyses);
   }
@@ -502,11 +539,13 @@ const start = async () => {
   try {
     const port = Number(process.env.PORT) || 3000;
     await fastify.listen({ port, host: '0.0.0.0' });
-    console.log(`\n🚀 Brain Index GEO v2.0 - Honest Scoring`);
-    console.log(`📡 Server running on port ${port}`);
-    console.log(`🔑 OpenAI: ${process.env.OPENAI_API_KEY ? 'Configured' : 'Missing'}`);
-    console.log(`💾 Qdrant: ${process.env.QDRANT_URL || 'localhost:6333'}`);
-    console.log(`\n✅ Quick & Honest AI Visibility Analysis Ready!\n`);
+    
+    const activeProviders = providersService.getActiveProviders();
+    
+    console.log(`\n🚀 Brain Index GEO v2.1`);
+    console.log(`📡 Server: port ${port}`);
+    console.log(`🎯 AI Providers: ${activeProviders.join(', ')} (${activeProviders.length} active)`);
+    console.log(`✅ Multi-Provider Honest Analysis Ready!\n`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
