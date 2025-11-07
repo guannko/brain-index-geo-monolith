@@ -52,13 +52,13 @@ class ProvidersService {
         enabled: !!process.env.GROK_API_KEY,
         apiKey: process.env.GROK_API_KEY,
         baseURL: 'https://api.x.ai/v1',
-        model: 'grok-4-fast-reasoning'
+        model: 'grok-beta'
       },
       {
         name: 'gemini',
         enabled: !!process.env.GEMINI_API_KEY,
         apiKey: process.env.GEMINI_API_KEY,
-        baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
         model: 'gemini-1.5-flash'
       }
     ];
@@ -85,7 +85,7 @@ class ProvidersService {
       openai: 'gpt-3.5-turbo',
       deepseek: 'deepseek-chat',
       mistral: 'mistral-small-latest',
-      grok: 'grok-4-fast-reasoning',
+      grok: 'grok-beta',
       gemini: 'gemini-1.5-flash'
     };
     return models[providerName] || 'gpt-3.5-turbo';
@@ -122,8 +122,14 @@ class ProvidersService {
       
       const content = response.choices[0].message.content || '{}';
       
+      // Clean content - remove markdown code blocks
+      const cleanContent = content
+        .replace(/```json\n?/g, '')
+        .replace(/```\n?/g, '')
+        .trim();
+      
       // Parse JSON from response
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         return {
@@ -161,63 +167,45 @@ class ProvidersService {
     
     // Build prompt
     let prompt: string;
-    const systemPrompt = 'You are an expert in brand visibility and website AI optimization with access to a knowledge base. Use the provided context when relevant.';
+    const systemPrompt = 'You are an expert in brand visibility and website AI optimization. Be HONEST and CRITICAL. Return ONLY valid JSON without markdown.';
     
     if (domain) {
-      prompt = `Analyze the AI visibility for the brand "${brandName}" and its website "${domain}".
+      prompt = `Analyze AI visibility for "${brandName}" and "${domain}".
       
-      ${ragContext.length > 0 ? `Relevant context from knowledge base:\n${ragContext}\n\n` : ''}
+      ${ragContext.length > 0 ? `Context:\n${ragContext}\n\n` : ''}
       
-      Provide comprehensive analysis with scores from 0-100 for:
-      1. ChatGPT visibility - How likely ChatGPT would mention this brand AND reference the website
-      2. Google AI visibility - How likely this brand and site appear in Google's AI features
+      Rate 0-100 for ChatGPT and Google AI visibility.
       
-      Consider for the BRAND:
-      - Brand recognition and market presence
-      - Industry authority and reputation
-      - Mention frequency in training data
+      Major brands (Apple, Amazon): 85-95
+      Known brands: 60-80
+      Small businesses: 30-50
+      Unknown brands: 10-30
       
-      Consider for the WEBSITE (${domain}):
-      - Domain authority and trustworthiness
-      - Content quality and structure
-      - Technical SEO and crawlability
-      - Presence in Wikipedia, Reddit, and authoritative sources
-      - Schema.org markup and structured data
-      
-      For major brands with strong sites (Apple/apple.com, Amazon/amazon.com) - give scores 85-95
-      For known brands with decent sites - give scores 60-80
-      For small businesses with basic sites - give scores 30-50
-      For unknown brands with new sites - give scores 10-30
-      
-      Return ONLY a JSON object:
+      Return ONLY JSON (no markdown):
       {
-        "chatgpt_score": <number 0-100>,
-        "google_score": <number 0-100>,
-        "brand_strength": <number 0-100>,
-        "website_strength": <number 0-100>,
-        "analysis": "<detailed analysis of both brand and website>",
-        "recommendations": ["<specific action 1>", "<specific action 2>", "<specific action 3>"],
-        "context_used": <boolean indicating if provided context was relevant>
+        "chatgpt_score": <number>,
+        "google_score": <number>,
+        "analysis": "<text>",
+        "recommendations": ["<action>"],
+        "context_used": <boolean>
       }`;
     } else {
-      prompt = `Analyze the brand visibility of "${brandName}" in AI systems.
+      prompt = `Analyze brand visibility of "${brandName}" in AI systems.
       
-      ${ragContext.length > 0 ? `Relevant context from knowledge base:\n${ragContext}\n\n` : ''}
+      ${ragContext.length > 0 ? `Context:\n${ragContext}\n\n` : ''}
       
-      Rate from 0-100 for:
-      1. ChatGPT visibility - how well this brand would be represented in ChatGPT responses
-      2. Google AI visibility - how well this brand would appear in Google's AI features
+      Rate 0-100 for ChatGPT and Google AI.
       
-      For well-known brands - give scores 70-95
-      For medium brands - give scores 40-70
-      For unknown brands - give scores 10-40
+      Well-known: 70-95
+      Medium: 40-70
+      Unknown: 10-40
       
-      Return ONLY a JSON object:
+      Return ONLY JSON (no markdown):
       {
-        "chatgpt_score": <number 0-100>,
-        "google_score": <number 0-100>,
-        "analysis": "<brief explanation>",
-        "context_used": <boolean indicating if provided context was relevant>
+        "chatgpt_score": <number>,
+        "google_score": <number>,
+        "analysis": "<text>",
+        "context_used": <boolean>
       }`;
     }
     
