@@ -22,9 +22,24 @@ export class ContextService {
 
   constructor() {
     // Initialize client only if Qdrant is configured
-    if (env.QDRANT_URL && env.QDRANT_URL !== 'http://qdrant-ma8b.railway.internal:6333') {
+    if (env.QDRANT_URL) {
+      // Check if it's internal Railway URL - skip initialization
+      if (env.QDRANT_URL.includes('railway.internal')) {
+        console.log('⚠️ RAG Pipeline disabled - using internal Railway URL that is not accessible');
+        return;
+      }
+
+      // For public Railway URLs, use HTTPS on port 443 (default)
+      const qdrantUrl = env.QDRANT_URL.startsWith('https://') 
+        ? env.QDRANT_URL 
+        : `https://${env.QDRANT_URL}`;
+
+      console.log('🔧 Initializing Qdrant client with URL:', qdrantUrl);
+
       this.client = new QdrantClient({
-        url: env.QDRANT_URL,
+        url: qdrantUrl,
+        port: 443, // Explicitly set HTTPS port
+        https: true, // Force HTTPS
         apiKey: env.QDRANT_API_KEY,
       });
     }
@@ -58,6 +73,7 @@ export class ContextService {
       }
       
       this.isInitialized = true;
+      console.log('✅ RAG Pipeline initialized successfully');
     } catch (error) {
       console.error('❌ Qdrant initialization failed:', error);
       console.log('⚠️ RAG Pipeline will be disabled for this session');
