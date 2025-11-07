@@ -1,32 +1,21 @@
-# Brain Index GEO — Monolithic TS Fastify + Prisma + BullMQ
+# Brain Index GEO Platform
 
-Production-ready skeleton for AI Visibility analysis (ChatGPT/Google), with:
-- Fastify API (`/api/analyzer`)
-- BullMQ queue + Redis worker
-- Prisma + PostgreSQL schema (`VisibilityScore`)
-- Redis caching
-- Dockerfile ready for Railway
+Multi-provider AI visibility analysis with RAG context.
 
-## Quick start
+## Features
+- 🤖 Multi-Provider Analysis (OpenAI, DeepSeek, Mistral, Groq, Gemini)
+- 📚 RAG Pipeline with Qdrant
+- 🎯 Brand + Website combined analysis
+- 📊 Variance detection across providers
+- 🔐 JWT Authentication
 
-```bash
-cp .env.example .env
-npm i
-npm run prisma:generate
-npm run migrate:dev
-npm run dev          # API
-npm run worker       # Queue worker (in another terminal)
-```
+## API Endpoints
+- POST `/api/analyzer/analyze` - Start analysis
+- GET `/api/analyzer/results/:id` - Get results
+- GET `/health` - Health check
 
-### API
+## Deploy: Railway + Vercel
+Backend: Railway (this repo)
+Frontend: Vercel (brain-index.com)
 
-- `POST /api/analyzer/analyze` `{ "input": "Acme Inc" }` → `202 { jobId }`
-- `GET  /api/analyzer/results/:id` → returns result or pending
-
-### Notes
-
-- ChatGPT scoring uses OpenAI API (set `OPENAI_API_KEY`).
-- Google check is mocked; replace with SERP/Custom Search.
-- Rate limiting via BullMQ limiter; caching via Redis (`CACHE_TTL`).
-
-MIT
+Last update: Multi-provider parallel analysis - Nov 7, 2025
