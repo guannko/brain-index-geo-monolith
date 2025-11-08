@@ -9,10 +9,6 @@ export class ChatGPTProvider implements AIProvider {
   }
 
   async analyze(input: string): Promise<ProviderResult> {
-    const controller = new AbortController();
-    const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 25000);
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-
     try {
       // PASS 1: Detailed GEO Analysis
       const analysisPrompt = this.buildUltimateGEOPrompt(input);
@@ -21,8 +17,7 @@ export class ChatGPTProvider implements AIProvider {
         model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: analysisPrompt }],
         temperature: 0.2,
-        max_tokens: 800,
-        signal: (controller as any).signal
+        max_tokens: 800
       });
       
       const analysisRaw = analysisRes.choices[0]?.message?.content?.trim() || '';
@@ -34,8 +29,7 @@ export class ChatGPTProvider implements AIProvider {
         model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: verifyPrompt }],
         temperature: 0.1,
-        max_tokens: 300,
-        signal: (controller as any).signal
+        max_tokens: 300
       });
       
       const verificationRaw = verifyRes.choices[0]?.message?.content?.trim() || '';
@@ -57,12 +51,8 @@ export class ChatGPTProvider implements AIProvider {
         } 
       };
     } catch (error: any) {
-      if (error.name === 'AbortError') {
-        throw new Error(`ChatGPT timeout after ${timeoutMs}ms`);
-      }
+      console.error('ChatGPT Provider Error:', error);
       throw error;
-    } finally {
-      clearTimeout(timer);
     }
   }
 
