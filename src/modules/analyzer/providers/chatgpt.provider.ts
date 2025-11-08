@@ -1,6 +1,5 @@
 import { AIProvider, ProviderResult } from './types.js';
 import { openai } from '../../../shared/openai.js';
-import { env } from '../../../config/env.js';
 
 export class ChatGPTProvider implements AIProvider {
   name: 'chatgpt' = 'chatgpt';
@@ -11,32 +10,55 @@ export class ChatGPTProvider implements AIProvider {
 
   async analyze(input: string): Promise<ProviderResult> {
     const controller = new AbortController();
-    const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 15000);
+    const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 25000);
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const prompt = this.buildGEOPrompt(input);
+      // PASS 1: Detailed GEO Analysis
+      const analysisPrompt = this.buildUltimateGEOPrompt(input);
       
-      const res = await openai.chat.completions.create({
+      const analysisRes = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-        max_tokens: 50,
-        // @ts-ignore: openai fetch supports signal
+        messages: [{ role: 'user', content: analysisPrompt }],
+        temperature: 0.2,
+        max_tokens: 800,
         signal: (controller as any).signal
       });
       
-      const raw = res.choices[0]?.message?.content?.trim() || '0';
-      const num = Math.max(0, Math.min(100, Number(raw.match(/\d+/)?.[0] || 0)));
+      const analysisRaw = analysisRes.choices[0]?.message?.content?.trim() || '';
+      
+      // PASS 2: Verification & Self-Improvement
+      const verifyPrompt = this.buildVerificationPrompt(input, analysisRaw);
+      
+      const verifyRes = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: verifyPrompt }],
+        temperature: 0.1,
+        max_tokens: 300,
+        signal: (controller as any).signal
+      });
+      
+      const verificationRaw = verifyRes.choices[0]?.message?.content?.trim() || '';
+      
+      // Extract final score
+      const scoreMatch = verificationRaw.match(/FINAL[_\s]+SCORE[:\s]+(\d+)/i) || 
+                        analysisRaw.match(/TOTAL[_\s]+SCORE[:\s]+(\d+)/i) || 
+                        analysisRaw.match(/(\d+)\/100/);
+      const score = scoreMatch ? Math.max(0, Math.min(100, Number(scoreMatch[1]))) : 50;
       
       return { 
         name: this.name, 
-        score: num, 
-        meta: { raw, model: 'gpt-4o-mini', promptVersion: '2.0' } 
+        score, 
+        meta: { 
+          analysis: analysisRaw,
+          verification: verificationRaw,
+          model: 'gpt-4o-mini',
+          promptVersion: '3.1-ultimate-pro'
+        } 
       };
     } catch (error) {
       if (error.name === 'AbortError') {
-        throw new Error(`ChatGPT timeout after ${timeoutMs}ms`);
+        throw new Error(\`ChatGPT timeout after \${timeoutMs}ms\`);
       }
       throw error;
     } finally {
@@ -44,45 +66,172 @@ export class ChatGPTProvider implements AIProvider {
     }
   }
 
-  private buildGEOPrompt(brandName: string): string {
-    return `You are a Generative Engine Optimization (GEO) analyst. Analyze brand visibility for "${brandName}" in AI-generated content.
+  private buildUltimateGEOPrompt(brandName: string): string {
+    return \`You are an elite Generative Engine Optimization (GEO) analyst. Analyze "\${brandName}" comprehensively.
 
-ANALYSIS CRITERIA:
+═══════════════════════════════════════════════════════════════════
+ULTIMATE GEO SCORING FRAMEWORK (100 points):
+═══════════════════════════════════════════════════════════════════
 
-1. AI SEARCH PRESENCE (30 points)
-   - How often does this brand appear in AI search results?
-   - Position in AI-generated answers (top/middle/bottom/absent)
-   - Frequency of mentions across different queries
+1. AI SEARCH PRESENCE & CITATION FREQUENCY (25 points)
+   Evaluate:
+   • Frequency in AI search results (ChatGPT, Perplexity, Gemini, Claude)
+   • Position in AI-generated answers (top vs buried)
+   • Citation types (informational/transactional/navigational)
+   • Presence across platforms (Google AI Overviews, Bing Chat)
+   
+   Scoring:
+   0-5:   Virtually invisible, rarely mentioned
+   6-10:  Occasional niche mentions only
+   11-15: Moderate category-specific presence
+   16-20: Frequently cited in relevant queries
+   21-25: Dominant, consistently top-mentioned
 
-2. BRAND AUTHORITY (25 points)
-   - Is this brand cited as an authoritative source?
-   - Does AI present it as an industry leader or expert?
-   - Quality of associations (premium/standard/low)
+2. BRAND AUTHORITY & SOURCE TRUST (20 points)
+   Evaluate:
+   • Primary authoritative source vs secondary reference
+   • AI treatment: expert/leader vs one-of-many
+   • Trust signals: journalism, academic, official documentation
+   • Knowledge depth: detailed vs superficial understanding
+   
+   Scoring:
+   0-4:   Mentioned without context or authority
+   5-8:   Generic mentions, no special recognition
+   9-12:  Recognized category player
+   13-16: Authoritative in specific domains
+   17-20: Industry-defining, go-to reference
 
-3. CONTEXT QUALITY (20 points)
-   - Positive/neutral/negative context in AI responses
-   - Is brand mentioned as solution or just referenced?
-   - Depth of information provided about the brand
+3. CITATION CONTEXT QUALITY & SENTIMENT (18 points)
+   Evaluate:
+   • Role: Solution provider / Case study / Warning / Neutral mention
+   • Sentiment: Positive (recommendation) / Neutral (factual) / Negative (criticism)
+   • Answer positioning: Core solution vs alternative vs comparison
+   • Mention specificity: Detailed explanation vs passing reference
+   
+   Scoring:
+   0-3:   Negative context, problematic associations
+   4-7:   Neutral factual mentions, no value judgment
+   8-11:  Positive but generic recommendations
+   12-15: Recommended solution in specific contexts
+   16-18: Consistently preferred/best choice positioning
 
 4. COMPETITIVE POSITIONING (15 points)
-   - How does it compare to competitors in AI responses?
-   - Is it mentioned first, among others, or overlooked?
-   - Market share perception in AI-generated content
+   Evaluate:
+   • Ranking vs competitors in AI lists
+   • Share of voice: solo vs among 5+ competitors
+   • Market positioning: premium/standard/budget framing
+   • First-mover advantage in AI understanding
+   
+   Scoring:
+   0-3:   Rarely mentioned, competitors dominate
+   4-6:   Listed after several competitors
+   7-9:   Among top 3-5 in mentions
+   10-12: Top 2 category positioning
+   13-15: Default first choice in responses
 
-5. INFORMATION RICHNESS (10 points)
-   - Amount of detailed information AI has about the brand
-   - Recency of information (current/outdated)
-   - Coverage across different aspects (products/services/values)
+5. COMMUNITY SOURCE AUTHORITY (10 points)
+   Evaluate:
+   • Reddit, Quora, Stack Overflow, HackerNews presence
+   • Community trust signals and recommendations
+   • User-generated content quality and frequency
+   • Forum/Discord/Slack community discussions
+   
+   Scoring:
+   0-2:   No community presence or negative sentiment
+   3-4:   Minimal community activity
+   5-6:   Active discussions, mixed sentiment
+   7-8:   Strong positive reputation
+   9-10:  Community champion, highly recommended
 
-SCORING GUIDELINES:
-- 0-20: Virtually invisible in AI-generated content
-- 21-40: Minimal presence, rarely mentioned
-- 41-60: Moderate visibility, occasional mentions
-- 61-80: Strong presence, frequently appears in relevant contexts
-- 81-100: Dominant visibility, consistently appears as top authority
+6. INFORMATION RICHNESS & MULTI-SOURCE SYNTHESIS (7 points)
+   Evaluate:
+   • Breadth: Coverage across different brand aspects
+   • Depth: Detail level in AI responses
+   • Source diversity: Number of distinct sources AI combines
+   • Recency: Current 2024-2025 vs outdated information
+   
+   Scoring:
+   0-1:   Minimal, outdated, single-source info
+   2-3:   Basic information from few sources
+   4-5:   Good multi-source coverage
+   6-7:   Comprehensive, current, rich synthesis
 
-Consider the brand's actual market presence, online footprint, and how AI models would likely represent it based on their training data.
+7. STRUCTURED DATA & AI PARSABILITY (5 points)
+   Evaluate:
+   • Schema markup: FAQ, Product, Organization, HowTo
+   • Content structure: Headings, bullets, tables, comparisons
+   • Technical docs quality and accessibility
+   • API documentation, integration guides visibility
+   
+   Scoring:
+   0-1:   Poor structure, hard to parse
+   2-3:   Basic structure, some organization
+   4-5:   Excellent structure, highly AI-parsable
 
-Respond with ONLY a number (0-100) representing the total GEO visibility score.`;
+═══════════════════════════════════════════════════════════════════
+
+RESPONSE FORMAT:
+
+BRAND: \${brandName}
+
+[2-3 sentence executive summary of AI visibility]
+
+DETAILED BREAKDOWN:
+1. AI Search Presence: X/25 - [Justification]
+2. Brand Authority: X/20 - [Justification]
+3. Context Quality: X/18 - [Justification]
+4. Competitive Position: X/15 - [Justification]
+5. Community Authority: X/10 - [Justification]
+6. Information Richness: X/7 - [Justification]
+7. Structured Data: X/5 - [Justification]
+
+TOTAL_SCORE: XX/100
+
+KEY INSIGHTS:
+• Strength: [Primary advantage]
+• Weakness: [Critical gap]
+• Opportunity: [Immediate action]
+
+CONFIDENCE: [High/Medium/Low]
+
+═══════════════════════════════════════════════════════════════════
+
+CRITICAL RULES:
+- Base scores on REAL market presence and AI behavior
+- Unknown brands: 0-30, Niche: 31-60, Major: 61-100
+- Consider competitive landscape realistically
+- Prioritize 2024-2025 data over older information
+- Be honest about limitations and data gaps\`;
+  }
+
+  private buildVerificationPrompt(brandName: string, analysis: string): string {
+    return \`You are a GEO Verifier. Review this analysis for accuracy.
+
+BRAND: "\${brandName}"
+
+ANALYSIS:
+\${analysis}
+
+VERIFICATION CHECKLIST:
+1. Score Realism: Are scores appropriate for brand's actual market presence?
+2. Internal Consistency: Do scores align with justifications?
+3. Competitive Context: Is positioning accurate vs competitors?
+4. Data Quality: Any obvious gaps or assumptions?
+5. Confidence Level: Does it match the analysis depth?
+
+VERIFY & ADJUST:
+
+ISSUES FOUND:
+• [List any problems]
+
+SCORE ADJUSTMENTS:
+• [Category]: [Original] → [Adjusted] ([Reason])
+
+FINAL_SCORE: XX/100
+
+VERIFICATION STATUS: [VERIFIED / NEEDS_REVIEW]
+CONFIDENCE: [High/Medium/Low]
+
+Keep response under 200 words, be direct.\`;
   }
 }
