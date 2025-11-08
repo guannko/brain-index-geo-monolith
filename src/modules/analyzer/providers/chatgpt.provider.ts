@@ -56,9 +56,9 @@ export class ChatGPTProvider implements AIProvider {
           promptVersion: '3.1-ultimate-pro'
         } 
       };
-    } catch (error) {
+    } catch (error: any) {
       if (error.name === 'AbortError') {
-        throw new Error(\`ChatGPT timeout after \${timeoutMs}ms\`);
+        throw new Error(`ChatGPT timeout after ${timeoutMs}ms`);
       }
       throw error;
     } finally {
@@ -67,7 +67,7 @@ export class ChatGPTProvider implements AIProvider {
   }
 
   private buildUltimateGEOPrompt(brandName: string): string {
-    return \`You are an elite Generative Engine Optimization (GEO) analyst. Analyze "\${brandName}" comprehensively.
+    return `You are an elite Generative Engine Optimization (GEO) analyst. Analyze "${brandName}" comprehensively.
 
 ═══════════════════════════════════════════════════════════════════
 ULTIMATE GEO SCORING FRAMEWORK (100 points):
@@ -172,7 +172,7 @@ ULTIMATE GEO SCORING FRAMEWORK (100 points):
 
 RESPONSE FORMAT:
 
-BRAND: \${brandName}
+BRAND: ${brandName}
 
 [2-3 sentence executive summary of AI visibility]
 
@@ -201,16 +201,16 @@ CRITICAL RULES:
 - Unknown brands: 0-30, Niche: 31-60, Major: 61-100
 - Consider competitive landscape realistically
 - Prioritize 2024-2025 data over older information
-- Be honest about limitations and data gaps\`;
+- Be honest about limitations and data gaps`;
   }
 
   private buildVerificationPrompt(brandName: string, analysis: string): string {
-    return \`You are a GEO Verifier. Review this analysis for accuracy.
+    return `You are a GEO Verifier. Review this analysis for accuracy.
 
-BRAND: "\${brandName}"
+BRAND: "${brandName}"
 
 ANALYSIS:
-\${analysis}
+${analysis}
 
 VERIFICATION CHECKLIST:
 1. Score Realism: Are scores appropriate for brand's actual market presence?
@@ -232,6 +232,6 @@ FINAL_SCORE: XX/100
 VERIFICATION STATUS: [VERIFIED / NEEDS_REVIEW]
 CONFIDENCE: [High/Medium/Low]
 
-Keep response under 200 words, be direct.\`;
+Keep response under 200 words, be direct.`;
   }
 }
