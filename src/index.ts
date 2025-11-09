@@ -3,19 +3,24 @@ import cors from '@fastify/cors';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { contextService } from './services/context.service.js';
-import { ChatGPTProvider } from './modules/analyzer/providers/chatgpt.provider.js';
+import { buildProviders, determineTier } from './modules/analyzer/provider-registry.js';
+import { AIProvider } from './modules/analyzer/providers/types.js';
 
 const fastify = Fastify({
   logger: true
 });
 
-// Initialize ChatGPT Provider (Ultimate v3.1)
-const chatgptProvider = new ChatGPTProvider();
+// Initialize ALL Providers (will auto-filter by API keys)
+const allProviders = buildProviders('pro'); // PRO by default
+const freeProviders = buildProviders('free'); // FREE for homepage
+
+console.log(`✅ Initialized ${allProviders.length} PRO providers:`, allProviders.map(p => p.name).join(', '));
+console.log(`✅ Initialized ${freeProviders.length} FREE providers:`, freeProviders.map(p => p.name).join(', '));
 
 // Initialize RAG Pipeline
 await contextService.initialize();
 console.log('✅ RAG Pipeline initialized with Qdrant');
-console.log('✅ Ultimate GEO v3.1 PRO initialized');
+console.log('✅ Ultimate GEO v3.1 (PRO) + FREE tier ready');
 
 // Temporary in-memory storage
 const jobResults = new Map();
@@ -36,9 +41,15 @@ fastify.get('/health', async (request, reply) => {
     timestamp: new Date().toISOString(),
     service: 'brain-index-geo-monolith',
     version: '3.1.0-ultimate-pro',
-    features: 'Ultimate GEO Analysis (7 criteria, 2-pass verification)',
-    provider: 'ChatGPT (gpt-4o-mini)',
-    promptVersion: '3.1-ultimate-pro'
+    features: 'Ultimate GEO Analysis (7 criteria PRO + 3 criteria FREE)',
+    providers: {
+      pro: allProviders.map(p => p.name),
+      free: freeProviders.map(p => p.name)
+    },
+    promptVersions: {
+      pro: '3.1-ultimate-pro',
+      free: '1.0-free'
+    }
   };
 });
 
@@ -158,13 +169,15 @@ fastify.get('/api/user/analyses', { preHandler: verifyToken }, async (request: a
   };
 });
 
-// MAIN ANALYZER - Ultimate GEO v3.1
+// MAIN ANALYZER - With FREE/PRO tier support
 fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
-  const { input } = request.body as { input: string };
+  const { input, tier: requestedTier } = request.body as { input: string; tier?: 'free' | 'pro' };
   const jobId = Math.random().toString(36).substring(7);
   
   let userId = 'anonymous';
   let userEmail = null;
+  let userPlan = 'FREE';
+  
   const authHeader = request.headers.authorization;
   if (authHeader) {
     try {
@@ -172,52 +185,83 @@ fastify.post('/api/analyzer/analyze', async (request: any, reply) => {
       const decoded = jwt.verify(token, JWT_SECRET) as any;
       userId = decoded.userId;
       userEmail = decoded.email;
+      userPlan = decoded.plan || 'FREE';
     } catch (error) {
       // Continue as anonymous
     }
   }
   
-  // Start async Ultimate GEO analysis
-  ultimateGEOAnalysis(input, jobId, userId, userEmail);
+  // Determine tier: requested tier OR based on user plan
+  const tier = requestedTier || determineTier(userPlan);
+  const providers = tier === 'free' ? freeProviders : allProviders;
+  
+  console.log(`🎯 Starting ${tier.toUpperCase()} analysis with ${providers.length} provider(s)`);
+  
+  // Start async analysis
+  runMultiProviderAnalysis(input, jobId, userId, userEmail, tier, providers);
   
   return {
     jobId,
     status: 'accepted',
     input: input,
-    type: 'ultimate-geo-v3.1'
+    tier: tier,
+    providers: providers.map(p => p.name),
+    type: tier === 'free' ? 'geo-free-v1.0' : 'ultimate-geo-v3.1'
   };
 });
 
-// Ultimate GEO v3.1 Analysis
-async function ultimateGEOAnalysis(
+// Multi-provider analysis with FREE/PRO support
+async function runMultiProviderAnalysis(
   brandName: string,
   jobId: string,
   userId: string,
-  userEmail: string | null
+  userEmail: string | null,
+  tier: 'free' | 'pro',
+  providers: AIProvider[]
 ) {
   try {
-    console.log(`\\n🎯 Ultimate GEO v3.1 Analysis - Brand: ${brandName}`);
+    console.log(`\\n🎯 ${tier.toUpperCase()} GEO Analysis - Brand: ${brandName}`);
     
     jobResults.set(jobId, {
       jobId,
       status: 'processing',
       brandName,
       userId,
+      tier,
       timestamp: new Date().toISOString()
     });
     
-    // Run Ultimate GEO v3.1 with 2-pass verification
-    const result = await chatgptProvider.analyze(brandName);
+    // Run analysis with ALL available providers
+    const results = await Promise.allSettled(
+      providers.map(p => p.analyze(brandName))
+    );
     
-    console.log(`✅ Analysis completed: ${result.score}/100`);
+    // Collect successful results
+    const successfulResults = results
+      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+      .map(r => r.value);
     
-    // Parse detailed breakdown from meta
+    if (successfulResults.length === 0) {
+      throw new Error('All providers failed');
+    }
+    
+    console.log(`✅ ${successfulResults.length}/${providers.length} providers succeeded`);
+    
+    // Calculate average score
+    const avgScore = Math.round(
+      successfulResults.reduce((sum, r) => sum + r.score, 0) / successfulResults.length
+    );
+    
+    // Get primary result (first successful provider, usually ChatGPT)
+    const primaryResult = successfulResults[0];
+    
+    // Parse detailed breakdown from meta (for PRO tier)
     let breakdown = null;
     let insights = null;
     let confidence = 'Medium';
     
-    if (result.meta?.analysis) {
-      const analysis = result.meta.analysis as string;
+    if (tier === 'pro' && primaryResult.meta?.analysis) {
+      const analysis = primaryResult.meta.analysis as string;
       
       // Extract breakdown
       const breakdownMatch = analysis.match(/DETAILED BREAKDOWN:([\\s\\S]*?)TOTAL_SCORE/);
@@ -239,14 +283,19 @@ async function ultimateGEOAnalysis(
     }
     
     const finalResult = {
-      score: result.score,
-      breakdown: breakdown || 'Detailed breakdown in meta.analysis',
-      insights: insights || 'Key insights in meta.analysis',
+      score: avgScore,
+      providers: successfulResults.map(r => ({
+        name: r.name,
+        score: r.score
+      })),
+      breakdown: breakdown || primaryResult.meta?.analysis || 'Analysis completed',
+      insights: insights || 'Check individual provider results',
       confidence: confidence,
-      analysis: result.meta?.analysis || '',
-      verification: result.meta?.verification || '',
-      model: result.meta?.model || 'gpt-4o-mini',
-      promptVersion: result.meta?.promptVersion || '3.1-ultimate-pro',
+      analysis: primaryResult.meta?.analysis || '',
+      verification: primaryResult.meta?.verification || '',
+      tier: tier,
+      model: primaryResult.meta?.model || 'multi-provider',
+      promptVersion: primaryResult.meta?.promptVersion || (tier === 'free' ? '1.0-free' : '3.1-ultimate-pro'),
       timestamp: new Date().toISOString(),
       brandName
     };
@@ -264,17 +313,18 @@ async function ultimateGEOAnalysis(
     // Save to RAG
     await contextService.ingestDocuments([{
       id: `analysis-${jobId}`,
-      content: `Brand: ${brandName}, Ultimate GEO Score: ${result.score}/100`,
+      content: `Brand: ${brandName}, ${tier.toUpperCase()} GEO Score: ${avgScore}${tier === 'pro' ? '/100' : '/20'}`,
       metadata: {
-        type: 'ultimate-geo-analysis',
+        type: `${tier}-geo-analysis`,
         brandName,
-        score: result.score,
-        promptVersion: '3.1-ultimate-pro',
+        score: avgScore,
+        tier,
+        promptVersion: tier === 'free' ? '1.0-free' : '3.1-ultimate-pro',
         timestamp: new Date().toISOString()
       }
     }]);
     
-    console.log(`✅ Ultimate GEO analysis completed for ${brandName}\\n`);
+    console.log(`✅ ${tier.toUpperCase()} GEO analysis completed for ${brandName}\\n`);
     
   } catch (error) {
     console.error('❌ Analysis error:', error);
@@ -284,9 +334,10 @@ async function ultimateGEOAnalysis(
       status: 'completed',
       userId,
       result: {
-        score: 30,
+        score: tier === 'free' ? 5 : 30,
         error: 'Analysis failed',
         brandName,
+        tier,
         timestamp: new Date().toISOString()
       }
     });
@@ -350,10 +401,11 @@ const start = async () => {
     const port = Number(process.env.PORT) || 3000;
     await fastify.listen({ port, host: '0.0.0.0' });
     
-    console.log(`\\n🚀 Brain Index GEO v3.1 ULTIMATE PRO`);
+    console.log(`\\n🚀 Brain Index GEO v3.1 ULTIMATE`);
     console.log(`📡 Server: port ${port}`);
-    console.log(`🎯 Provider: ChatGPT (gpt-4o-mini)`);
-    console.log(`✅ 7 Criteria + 2-Pass Verification Ready!\\n`);
+    console.log(`🎯 PRO Providers (${allProviders.length}):`, allProviders.map(p => p.name).join(', '));
+    console.log(`🆓 FREE Providers (${freeProviders.length}):`, freeProviders.map(p => p.name).join(', '));
+    console.log(`✅ Multi-tier GEO Ready!\\n`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
