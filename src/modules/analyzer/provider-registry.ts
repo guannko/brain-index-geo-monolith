@@ -8,9 +8,15 @@ import { GrokProvider } from './providers/grok.provider.js';
 import { GeminiProvider } from './providers/gemini.provider.js';
 
 export function buildProviders(tier: 'free' | 'pro' = 'pro'): AIProvider[] {
-  // FREE TIER: Only ChatGPT Free (simple 3-criteria analysis)
+  // FREE TIER: All 5 main providers (show real visibility across all AI)
   if (tier === 'free') {
-    return [new ChatGPTFreeProvider()];
+    return [
+      new ChatGPTFreeProvider(),   // Free analysis
+      new DeepSeekProvider(),
+      new MistralProvider(),
+      new GrokProvider(),
+      new GeminiProvider(),
+    ].filter(p => p.isEnabled());
   }
   
   // PRO TIER: All providers with Ultimate GEO 7-criteria analysis
