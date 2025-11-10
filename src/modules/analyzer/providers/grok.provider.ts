@@ -23,7 +23,7 @@ export class GrokProvider implements AIProvider {
           'Authorization': `Bearer ${env.GROK_API_KEY}`
         },
         body: JSON.stringify({
-          model: 'grok-beta',
+          model: 'grok-2-1212',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1,
           max_tokens: 8

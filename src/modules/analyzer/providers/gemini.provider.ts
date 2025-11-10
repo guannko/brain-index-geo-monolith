@@ -16,7 +16,7 @@ export class GeminiProvider implements AIProvider {
     try {
       const prompt = `Rate brand visibility (0..100) for "${input}". Consider brand recognition, market presence, online mentions. Reply with number only.`;
       
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${env.GEMINI_API_KEY}`, {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${env.GEMINI_API_KEY}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -44,7 +44,7 @@ export class GeminiProvider implements AIProvider {
       return { 
         name: this.name, 
         score: num, 
-        meta: { raw, model: 'gemini-2.0-flash-exp' } 
+        meta: { raw, model: 'gemini-1.5-flash' } 
       };
     } catch (error) {
       if (error.name === 'AbortError') {
