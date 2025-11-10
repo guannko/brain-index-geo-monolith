@@ -296,12 +296,22 @@ async function runMultiProviderAnalysis(
       }
     }
     
+    // Create flat structure for frontend compatibility
+    const providerScores: any = {};
+    successfulResults.forEach(r => {
+      // Normalize provider names: chatgpt-free -> chatgpt
+      const normalizedName = r.name.replace('-free', '');
+      providerScores[normalizedName] = r.score;
+    });
+    
     const finalResult = {
       score: avgScore,
       providers: successfulResults.map(r => ({
         name: r.name,
         score: r.score
       })),
+      // Add flat structure for frontend
+      ...providerScores,
       breakdown: breakdown || primaryResult.meta?.analysis || 'Analysis completed',
       insights: insights || 'Check individual provider results',
       confidence: confidence,
