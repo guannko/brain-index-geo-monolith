@@ -220,7 +220,7 @@ async function runMultiProviderAnalysis(
   providers: AIProvider[]
 ) {
   try {
-    console.log(`\\n🎯 ${tier.toUpperCase()} GEO Analysis - Brand: ${brandName}`);
+    console.log(`\n🎯 ${tier.toUpperCase()} GEO Analysis - Brand: ${brandName}`);
     
     jobResults.set(jobId, {
       jobId,
@@ -232,8 +232,20 @@ async function runMultiProviderAnalysis(
     });
     
     // Run analysis with ALL available providers
+    console.log(`📡 Running ${providers.length} providers:`, providers.map(p => p.name).join(', '));
+    
     const results = await Promise.allSettled(
-      providers.map(p => p.analyze(brandName))
+      providers.map(async (p) => {
+        try {
+          console.log(`  ⏳ Starting ${p.name}...`);
+          const result = await p.analyze(brandName);
+          console.log(`  ✅ ${p.name} succeeded: ${result.score}`);
+          return result;
+        } catch (error) {
+          console.error(`  ❌ ${p.name} failed:`, error.message);
+          throw error;
+        }
+      })
     );
     
     // Collect successful results
@@ -241,11 +253,13 @@ async function runMultiProviderAnalysis(
       .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
       .map(r => r.value);
     
+    const failedProviders = providers.length - successfulResults.length;
+    
     if (successfulResults.length === 0) {
       throw new Error('All providers failed');
     }
     
-    console.log(`✅ ${successfulResults.length}/${providers.length} providers succeeded`);
+    console.log(`✅ ${successfulResults.length}/${providers.length} providers succeeded${failedProviders > 0 ? ` (${failedProviders} failed)` : ''}`);
     
     // Calculate average score
     const avgScore = Math.round(
@@ -264,13 +278,13 @@ async function runMultiProviderAnalysis(
       const analysis = primaryResult.meta.analysis as string;
       
       // Extract breakdown
-      const breakdownMatch = analysis.match(/DETAILED BREAKDOWN:([\\s\\S]*?)TOTAL_SCORE/);
+      const breakdownMatch = analysis.match(/DETAILED BREAKDOWN:([\s\S]*?)TOTAL_SCORE/);
       if (breakdownMatch) {
         breakdown = breakdownMatch[1].trim();
       }
       
       // Extract insights
-      const insightsMatch = analysis.match(/KEY INSIGHTS:([\\s\\S]*?)CONFIDENCE/);
+      const insightsMatch = analysis.match(/KEY INSIGHTS:([\s\S]*?)CONFIDENCE/);
       if (insightsMatch) {
         insights = insightsMatch[1].trim();
       }
@@ -324,7 +338,7 @@ async function runMultiProviderAnalysis(
       }
     }]);
     
-    console.log(`✅ ${tier.toUpperCase()} GEO analysis completed for ${brandName}\\n`);
+    console.log(`✅ ${tier.toUpperCase()} GEO analysis completed for ${brandName}\n`);
     
   } catch (error) {
     console.error('❌ Analysis error:', error);
@@ -401,11 +415,11 @@ const start = async () => {
     const port = Number(process.env.PORT) || 3000;
     await fastify.listen({ port, host: '0.0.0.0' });
     
-    console.log(`\\n🚀 Brain Index GEO v3.1 ULTIMATE`);
+    console.log(`\n🚀 Brain Index GEO v3.1 ULTIMATE`);
     console.log(`📡 Server: port ${port}`);
     console.log(`🎯 PRO Providers (${allProviders.length}):`, allProviders.map(p => p.name).join(', '));
     console.log(`🆓 FREE Providers (${freeProviders.length}):`, freeProviders.map(p => p.name).join(', '));
-    console.log(`✅ Multi-tier GEO Ready!\\n`);
+    console.log(`✅ Multi-tier GEO Ready!\n`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
