@@ -313,14 +313,17 @@ async function runMultiProviderAnalysis(
     
     console.log('📦 Provider scores for frontend:', providerScores);
     
+    // Scale scores to 0-100 for frontend display (FREE tier: 0-20 -> 0-100)
+    const displayMultiplier = tier === 'free' ? 5 : 1;
+    
     const finalResult = {
-      score: avgScore,
+      score: avgScore * displayMultiplier,
       // Add flat structure FIRST for frontend compatibility
-      chatgpt: providerScores.chatgpt || 0,
-      deepseek: providerScores.deepseek || 0,
-      mistral: providerScores.mistral || 0,
-      grok: providerScores.grok || 0,
-      gemini: providerScores.gemini || 0,
+      chatgpt: (providerScores.chatgpt || 0) * displayMultiplier,
+      deepseek: (providerScores.deepseek || 0) * displayMultiplier,
+      mistral: (providerScores.mistral || 0) * displayMultiplier,
+      grok: (providerScores.grok || 0) * displayMultiplier,
+      gemini: (providerScores.gemini || 0) * displayMultiplier,
       // Keep array for detailed view
       providers: successfulResults.map(r => ({
         name: r.name,
