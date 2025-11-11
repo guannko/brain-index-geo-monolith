@@ -239,6 +239,13 @@ async function runMultiProviderAnalysis(
         try {
           console.log(`  ⏳ Starting ${p.name}...`);
           const result = await p.analyze(brandName);
+          
+          // Force scale to 0-20 for FREE tier if AI returns 0-100
+          if (tier === 'free' && result.score > 20) {
+            result.score = Math.round(result.score / 5); // 100 -> 20
+            console.log(`  📊 ${p.name} scaled: ${result.score * 5} -> ${result.score}`);
+          }
+          
           console.log(`  ✅ ${p.name} succeeded: ${result.score}`);
           return result;
         } catch (error) {
@@ -304,14 +311,21 @@ async function runMultiProviderAnalysis(
       providerScores[normalizedName] = r.score;
     });
     
+    console.log('📦 Provider scores for frontend:', providerScores);
+    
     const finalResult = {
       score: avgScore,
+      // Add flat structure FIRST for frontend compatibility
+      chatgpt: providerScores.chatgpt || 0,
+      deepseek: providerScores.deepseek || 0,
+      mistral: providerScores.mistral || 0,
+      grok: providerScores.grok || 0,
+      gemini: providerScores.gemini || 0,
+      // Keep array for detailed view
       providers: successfulResults.map(r => ({
         name: r.name,
         score: r.score
       })),
-      // Add flat structure for frontend
-      ...providerScores,
       breakdown: breakdown || primaryResult.meta?.analysis || 'Analysis completed',
       insights: insights || 'Check individual provider results',
       confidence: confidence,
