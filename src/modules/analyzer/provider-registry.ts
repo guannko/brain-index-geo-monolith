@@ -1,7 +1,7 @@
 import { AIProvider } from './types.js';
 import { buildProviders as buildChatGPT } from './chatgpt.provider.js';
 
-export function buildProviders(tier: 'free' | 'pro'): AIProvider[] {
+export async function buildProviders(tier: 'free' | 'pro'): Promise<AIProvider[]> {
   // Only PRO tier now - FREE tier removed
   // Use same PRO analysis for all cases
   
