@@ -10,13 +10,13 @@ export class ChatGPTProvider implements AIProvider {
 
   async analyze(input: string): Promise<ProviderResult> {
     try {
-      // PASS 1: Detailed GEO Analysis with strict calibration
+      // PASS 1: Detailed GEO Analysis with BRUTAL calibration
       const analysisPrompt = this.buildUltimateGEOPrompt(input);
       
       const analysisRes = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: analysisPrompt }],
-        temperature: 0.2,
+        temperature: 0.1, // Lower for more conservative scoring
         max_tokens: 1200
       });
       
@@ -24,13 +24,13 @@ export class ChatGPTProvider implements AIProvider {
       
       console.log(`\n🔍 ChatGPT Analysis Response (first 500 chars):\n${analysisRaw.substring(0, 500)}\n`);
       
-      // PASS 2: Verification & Self-Improvement
+      // PASS 2: Verification & Reality Check
       const verifyPrompt = this.buildVerificationPrompt(input, analysisRaw);
       
       const verifyRes = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: verifyPrompt }],
-        temperature: 0.1,
+        temperature: 0.05, // Even lower for strict verification
         max_tokens: 400
       });
       
@@ -39,7 +39,7 @@ export class ChatGPTProvider implements AIProvider {
       console.log(`\n🔍 ChatGPT Verification Response:\n${verificationRaw}\n`);
       
       // Extract final score - try multiple patterns
-      let score = 50; // default
+      let score = 5; // default to very low
       
       // Pattern 1: FINAL_SCORE: XX
       const finalScoreMatch = verificationRaw.match(/FINAL[_\s]+SCORE[:\s]+(\d+)/i);
@@ -59,7 +59,7 @@ export class ChatGPTProvider implements AIProvider {
             score = Number(slashScoreMatch[1]);
             console.log(`✅ Extracted score from XX/100: ${score}`);
           } else {
-            console.log(`⚠️ No score pattern found! Using default: ${score}`);
+            console.log(`⚠️ No score pattern found! Using conservative default: ${score}`);
           }
         }
       }
@@ -74,7 +74,7 @@ export class ChatGPTProvider implements AIProvider {
           analysis: analysisRaw,
           verification: verificationRaw,
           model: 'gpt-4o-mini',
-          promptVersion: '3.2-ultimate-pro-calibrated'
+          promptVersion: '3.3-brutal-calibration'
         } 
       };
     } catch (error: any) {
@@ -84,145 +84,114 @@ export class ChatGPTProvider implements AIProvider {
   }
 
   private buildUltimateGEOPrompt(brandName: string): string {
-    return `You are an elite Generative Engine Optimization (GEO) analyst. Analyze "${brandName}" with STRICT CALIBRATION.
+    return `You are an EXTREMELY STRICT GEO analyst. Analyze "${brandName}" with BRUTAL HONESTY.
 
 ═══════════════════════════════════════════════════════════════════
-ULTIMATE GEO SCORING FRAMEWORK (100 points):
+🚨 CRITICAL: BE BRUTALLY HONEST - LOW SCORES ARE THE NORM! 🚨
 ═══════════════════════════════════════════════════════════════════
 
-⚠️ CRITICAL CALIBRATION RULES (READ FIRST):
+REAL-WORLD AI VISIBILITY BENCHMARKS (backed by industry data):
+• 0-5%: Brand doesn't exist in AI answers (most unknown brands)
+• 5-15%: Minimal presence, rare mentions (small startups)
+• 15-25%: Beginning visibility (local businesses)
+• 25-35%: Moderate presence (established regional players)
+• 35-50%: Strong visibility (national brands)
+• 50%+: Exceptional (major brands like Nike, Tesla)
+
+SCORING SCALE (0-100):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. NO ACTIVE WEBSITE = Maximum 8 points total (regardless of other factors)
-2. INACTIVE SOCIAL MEDIA (6+ months) = Reduce all scores by 60%
-3. NOT FOUND IN AI SEARCH = 0-5 points maximum in AI Presence
-4. NO COMMUNITY PRESENCE = 0 points in Community Authority
-5. UNKNOWN BRANDS realistically score 5-25/100 (be honest!)
-6. MAJOR BRANDS (Nike, Tesla, Apple) score 75-95/100
-7. VERIFY REAL PRESENCE before scoring above 30 points
-8. Default to LOWER scores when uncertain
+0-5:    Dead/non-existent brand, no website, zero online presence
+5-15:   Unknown startup, no traction, minimal or no citations
+15-30:  Small local business, very limited visibility
+30-50:  Regional player, some market presence
+50-70:  Established national brand, regular citations
+70-85:  Major brand, strong market position
+85-95:  Global leader, dominant in category (Apple, Google, Nike)
+96-100: RESERVED FOR TOP 5 GLOBAL BRANDS ONLY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. AI SEARCH PRESENCE & CITATION FREQUENCY (25 points)
-   Evaluate:
-   • Frequency in AI search results (ChatGPT, Perplexity, Gemini, Claude)
-   • Position in AI-generated answers (top vs buried)
-   • Citation types (informational/transactional/navigational)
-   • Presence across platforms (Google AI Overviews, Bing Chat)
-   
-   Realistic Scoring:
-   0-3:   Unknown - AI has never heard of this brand
-   4-7:   Rare mentions - Only in very specific niche queries
-   8-12:  Occasional - Appears in category searches but not prominent
-   13-17: Regular - Frequently cited in relevant queries
-   18-22: Strong - Consistently mentioned, good positioning
-   23-25: Dominant - Default answer, industry leader
+⚠️ MANDATORY REALITY CHECKS (APPLY STRICTLY):
+1. NO WEBSITE OR DEAD SITE = Maximum 5 points TOTAL
+2. NEVER heard of in AI systems = 0-5 points maximum
+3. NO CLIENTS/NO REVENUE = 0-8 points maximum  
+4. INACTIVE 6+ months = Maximum 10 points
+5. NO COMMUNITY/SOCIAL MEDIA = 0 in Community Authority
+6. DEFAULT TO LOWER SCORES when uncertain!
+7. BE HONEST: 90% of brands score 5-30/100
 
-2. BRAND AUTHORITY & SOURCE TRUST (20 points)
-   Evaluate:
-   • Primary authoritative source vs secondary reference
-   • AI treatment: expert/leader vs one-of-many
-   • Trust signals: journalism, academic, official documentation
-   • Knowledge depth: detailed vs superficial understanding
-   
-   Realistic Scoring:
-   0-3:   No authority - Generic or no mentions
-   4-7:   Basic recognition - Listed among many alternatives
-   8-12:  Growing authority - Recognized in specific contexts
-   13-16: Strong authority - Cited as credible source
-   17-20: Industry authority - Go-to reference, expert positioning
+EVALUATION CRITERIA (8 categories, 100 points total):
 
-3. CITATION CONTEXT QUALITY & SENTIMENT (18 points)
-   Evaluate:
-   • Role: Solution provider / Case study / Warning / Neutral mention
-   • Sentiment: Positive (recommendation) / Neutral (factual) / Negative (criticism)
-   • Answer positioning: Core solution vs alternative vs comparison
-   • Mention specificity: Detailed explanation vs passing reference
-   
-   Realistic Scoring:
-   0-3:   Negative or missing context
-   4-7:   Neutral factual mentions only
-   8-11:  Positive but generic
-   12-15: Recommended in specific contexts
-   16-18: Preferred choice, highly recommended
+1. AI SEARCH PRESENCE (0-25 points)
+   Reality: Most brands score 0-5 here
+   0-3:   Never appears in AI answers
+   4-8:   Extremely rare mentions
+   9-15:  Occasional niche appearances
+   16-20: Regular category mentions
+   21-25: Industry leader status (very rare)
 
-4. COMPETITIVE POSITIONING (15 points)
-   Evaluate:
-   • Ranking vs competitors in AI lists
-   • Share of voice: solo vs among 5+ competitors
-   • Market positioning: premium/standard/budget framing
-   • First-mover advantage in AI understanding
-   
-   Realistic Scoring:
-   0-2:   Not mentioned when competitors are
-   3-5:   Listed after 5+ competitors
-   6-9:   Among top 5 in category
+2. BRAND AUTHORITY (0-20 points)
+   Reality: Most brands score 0-3 here
+   0-2:   No authority, generic mentions
+   3-5:   Minimal recognition
+   6-10:  Some niche authority
+   11-15: Recognized expert
+   16-20: Industry thought leader (rare)
+
+3. CONTEXT QUALITY (0-18 points)
+   Reality: Most brands score 0-3 here
+   0-3:   No context or negative
+   4-7:   Neutral mentions only
+   8-12:  Some positive context
+   13-15: Recommended in contexts
+   16-18: Preferred choice (rare)
+
+4. COMPETITIVE POSITION (0-15 points)
+   Reality: Most brands score 0-2 here
+   0-2:   Not mentioned vs competitors
+   3-5:   Listed among 10+ competitors
+   6-9:   Top 5 in category
    10-12: Top 3 positioning
-   13-15: #1 or #2 default choice
+   13-15: Category leader (very rare)
 
-5. COMMUNITY SOURCE AUTHORITY (10 points)
-   Evaluate:
-   • Reddit, Quora, Stack Overflow, HackerNews presence
-   • Community trust signals and recommendations
-   • User-generated content quality and frequency
-   • Forum/Discord/Slack community discussions
-   
-   Realistic Scoring:
-   0:     Zero community presence
-   1-2:   Minimal mentions, no engagement
-   3-4:   Some discussions, mixed sentiment
-   5-7:   Active positive community
-   8-10:  Community champion, highly recommended
+5. COMMUNITY AUTHORITY (0-10 points)
+   Reality: Most brands score 0 here
+   0:     No community presence
+   1-2:   Minimal mentions
+   3-5:   Some discussions
+   6-8:   Active community
+   9-10:  Community champion (rare)
 
-6. INFORMATION RICHNESS & MULTI-SOURCE SYNTHESIS (12 points)
-   Evaluate:
-   • Breadth: Coverage across different brand aspects
-   • Depth: Detail level in AI responses
-   • Source diversity: Number of distinct sources AI combines
-   • Recency: Current 2024-2025 vs outdated information
-   
-   Realistic Scoring:
-   0-2:   Minimal or outdated information
+6. INFORMATION RICHNESS (0-12 points)
+   Reality: Most brands score 0-3 here
+   0-2:   No information available
    3-5:   Basic single-source info
-   6-8:   Good multi-source coverage
-   9-10:  Rich, current information
-   11-12: Comprehensive, authoritative sources
+   6-8:   Multi-source coverage
+   9-10:  Rich documentation
+   11-12: Comprehensive authority (rare)
 
-7. STRUCTURED DATA & AI PARSABILITY (8 points)
-   Evaluate:
-   • Schema markup: FAQ, Product, Organization, HowTo
-   • Content structure: Headings, bullets, tables, comparisons
-   • Technical docs quality and accessibility
-   • API documentation, integration guides visibility
-   
-   Realistic Scoring:
-   0-1:   No structure or website
-   2-3:   Basic website, poor structure
-   4-5:   Decent structure, some schema
-   6-7:   Good structure, comprehensive schema
-   8:     Excellent AI-optimized content
+7. STRUCTURED DATA (0-8 points)
+   Reality: Most brands score 0-2 here
+   0-1:   No website or structure
+   2-3:   Basic website
+   4-5:   Good structure
+   6-7:   Excellent schema
+   8:     Perfect optimization (very rare)
 
-8. GEOGRAPHIC VISIBILITY (12 points) 🌍
-   Evaluate:
-   • USA market presence and AI visibility
-   • European market presence and AI visibility
-   • Asian market presence and AI visibility
-   • Multi-language coverage and localization
-   
-   Realistic Scoring:
-   0-2:   No geographic visibility data
-   3-5:   Single market, weak presence
-   6-8:   2-3 markets, moderate presence
-   9-10:  Multi-market, strong in 1-2 regions
-   11-12: Global presence, strong across all regions
+8. GEOGRAPHIC VISIBILITY (0-12 points)
+   Reality: Most brands score 0-2 here
+   0-2:   No geographic data
+   3-5:   Single market, weak
+   6-8:   Regional presence
+   9-10:  Multi-market
+   11-12: Global presence (rare)
 
 ═══════════════════════════════════════════════════════════════════
 
-⚠️ CRITICAL: YOU MUST END YOUR RESPONSE WITH THIS EXACT FORMAT:
+⚠️ MANDATORY: END WITH EXACT FORMAT:
 
 TOTAL_SCORE: XX/100
 
-Where XX is the sum of all 8 criteria scores (0-100).
-DO NOT FORGET THIS LINE - IT IS MANDATORY!
+Where XX is the realistic sum (expect 5-30 for most brands)
 
 ═══════════════════════════════════════════════════════════════════
 
@@ -230,56 +199,36 @@ RESPONSE FORMAT:
 
 BRAND: ${brandName}
 
-[2-3 sentence executive summary of AI visibility - be brutally honest]
+EXECUTIVE SUMMARY:
+[2-3 sentences with BRUTAL HONESTY about actual visibility]
 
 DETAILED BREAKDOWN:
-1. AI Search Presence: X/25 - [Brief justification with reality check]
-2. Brand Authority: X/20 - [Brief justification]
-3. Context Quality: X/18 - [Brief justification]
-4. Competitive Position: X/15 - [Brief justification]
-5. Community Authority: X/10 - [Brief justification]
-6. Information Richness: X/12 - [Brief justification]
-7. Structured Data: X/8 - [Brief justification]
-8. Geographic Visibility: X/12 - [Brief justification]
-
-GEO BREAKDOWN:
-🇺🇸 USA: [High/Medium/Low/None] (XX% of mentions)
-🇪🇺 Europe: [High/Medium/Low/None] (XX% of mentions)
-🌏 Asia: [High/Medium/Low/None] (XX% of mentions)
-PRIMARY MARKET: [Region or "None identified"]
-LANGUAGES: [List or "English only" or "None"]
+1. AI Search Presence: X/25 - [Reality check]
+2. Brand Authority: X/20 - [Reality check]
+3. Context Quality: X/18 - [Reality check]
+4. Competitive Position: X/15 - [Reality check]
+5. Community Authority: X/10 - [Reality check]
+6. Information Richness: X/12 - [Reality check]
+7. Structured Data: X/8 - [Reality check]
+8. Geographic Visibility: X/12 - [Reality check]
 
 TOTAL_SCORE: XX/100
 
-CRITICAL ISSUES (top 3 problems):
-1. [Most critical problem]
-2. [Second critical problem]
-3. [Third critical problem]
-
-KEY OPPORTUNITY:
-[One actionable recommendation]
-
-CONFIDENCE: [High/Medium/Low]
+CRITICAL ISSUES:
+1. [Most severe problem]
+2. [Second problem]
+3. [Third problem]
 
 ═══════════════════════════════════════════════════════════════════
 
-SCORING REALITY CHECK:
-• Dead/inactive brands: 0-15
-• Unknown startups: 5-25
-• Local businesses: 10-35
-• Regional players: 25-50
-• National brands: 45-70
-• Major brands: 65-85
-• Global leaders: 80-95
-
-BE HONEST. LOW SCORES ARE EXPECTED FOR MOST BRANDS.`;
+BE BRUTALLY HONEST. Most brands you analyze will score 5-30/100.
+That's NORMAL and CORRECT. Don't be generous - be REALISTIC!`;
   }
 
   private buildVerificationPrompt(brandName: string, analysis: string): string {
-    return `You are a STRICT GEO Verifier. Review this analysis for REALISM and HONESTY.
+    return `STRICT VERIFICATION PASS - Check for score inflation!
 
 BRAND: "${brandName}"
-
 ANALYSIS TO VERIFY:
 ${analysis}
 
@@ -288,65 +237,57 @@ VERIFICATION CHECKLIST:
 ═══════════════════════════════════════════════════════════════════
 
 1. REALITY CHECK:
-   • Is the score realistic for this brand's actual market presence?
-   • Are we being TOO GENEROUS? (Common mistake!)
-   • Does score match the justifications?
+   • Is this brand actually well-known? (be honest!)
+   • Did we score TOO HIGH? (common mistake!)
+   • Does the score match real-world visibility?
 
-2. CALIBRATION CHECK:
-   • No website = Should be under 10 points
-   • Unknown brand = Should be under 25 points
-   • Local business = Should be 10-35 points
-   • Are we following strict calibration rules?
+2. CRITICAL RULES COMPLIANCE:
+   ✓ No website = Max 5 points total?
+   ✓ Unknown brand = Max 15 points?
+   ✓ No clients/revenue = Max 8 points?
+   ✓ Dead/inactive = Max 10 points?
 
-3. GEO VERIFICATION:
-   • Are geographic claims verifiable?
-   • Do percentages make sense?
-   • Is primary market correctly identified?
+3. SCORE INFLATION CHECK:
+   • Are we being TOO GENEROUS? (reduce by 30-50%)
+   • Is each criterion scored conservatively?
+   • Did we apply strict benchmarks?
 
-4. CRITICAL ISSUES:
-   • Are the top 3 problems actually critical?
-   • Do they explain the low score?
-   • Are they actionable?
-
-5. INTERNAL CONSISTENCY:
-   • Do individual scores add up to total?
-   • Do justifications match scores?
-   • Are we being consistent across criteria?
+4. BENCHMARK REALITY:
+   • 90% of brands score 5-30/100 ← This is NORMAL
+   • Only major brands score 50+
+   • Scores above 70 = Nike/Tesla level ONLY
 
 ═══════════════════════════════════════════════════════════════════
 
-⚠️ CRITICAL: YOU MUST END YOUR RESPONSE WITH THIS EXACT FORMAT:
+⚠️ MANDATORY: END WITH EXACT FORMAT:
 
 FINAL_SCORE: XX
 
-Where XX is your final verified score (0-100).
-DO NOT FORGET THIS LINE - IT IS MANDATORY!
+Where XX is your REDUCED, realistic score (0-100)
 
 ═══════════════════════════════════════════════════════════════════
 
-VERIFIED RESPONSE FORMAT:
+RESPONSE FORMAT:
 
-VERIFICATION STATUS: [VERIFIED / ADJUSTED / MAJOR_REVISION_NEEDED]
+VERIFICATION: [PASS / REDUCED / FAILED]
 
 ISSUES FOUND:
-• [List any problems with scoring]
-• [Note any unrealistic scores]
-• [Flag any calibration violations]
+• [List score inflation problems]
+• [Flag unrealistic scores]
+• [Note missing reality checks]
 
-SCORE ADJUSTMENTS (if needed):
-• [Criterion]: [Original] → [Adjusted] - [Reason]
-• [Criterion]: [Original] → [Adjusted] - [Reason]
+ADJUSTMENTS:
+• [Criterion]: [Old] → [New] - [Why reduced]
+• [Criterion]: [Old] → [New] - [Why reduced]
 
 FINAL_SCORE: XX
 
-CONFIDENCE: [High/Medium/Low]
-
-CALIBRATION NOTES:
-[Brief comment on whether this score matches brand's real-world presence]
+REALITY CHECK:
+[Does this score match the brand's actual market presence?]
 
 ═══════════════════════════════════════════════════════════════════
 
-CRITICAL: Be STRICT. It's better to underscore than overscore.
-Most brands should score 10-40. Only truly visible brands score 60+.`;
+CRITICAL: Reduce scores by 30-50% if they seem too generous!
+Most brands should score 5-30/100. Be STRICT!`;
   }
 }
