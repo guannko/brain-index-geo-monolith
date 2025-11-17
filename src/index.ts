@@ -11,7 +11,7 @@ const fastify = Fastify({
 });
 
 // Initialize PRO Providers only (FREE tier removed)
-const providers = buildProviders('pro');
+const providers = await buildProviders('pro');
 
 console.log(`✅ Initialized ${providers.length} PRO providers:`, providers.map(p => p.name).join(', '));
 
