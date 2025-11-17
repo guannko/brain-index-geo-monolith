@@ -40,14 +40,35 @@ export class MistralProvider implements AIProvider {
       
       console.log(`\n🔍 Mistral Response (first 400 chars):\n${raw.substring(0, 400)}\n`);
       
-      // Extract score - look for SCORE: XX/100 or SCORE: XX
-      const scoreMatch = raw.match(/(?:TOTAL_)?SCORE[:\s]+(\d+)(?:\/100)?/i) || 
-                        raw.match(/(\d+)\/100/) ||
-                        raw.match(/\b(\d{1,2})\b/); // fallback to any 1-2 digit number
+      // Extract score - try multiple patterns
+      let score = 50; // default
       
-      const score = scoreMatch ? Math.max(0, Math.min(100, Number(scoreMatch[1]))) : 50;
+      // Pattern 1: SCORE: XX/100 or SCORE: XX
+      const scoreMatch = raw.match(/SCORE[:\s]+(\d+)(?:\/100)?/i);
+      if (scoreMatch) {
+        score = Number(scoreMatch[1]);
+        console.log(`✅ Mistral extracted score from SCORE: ${score}`);
+      } else {
+        // Pattern 2: Total: XX/100
+        const totalMatch = raw.match(/Total[:\s]+(\d+)(?:\/100)?/i);
+        if (totalMatch) {
+          score = Number(totalMatch[1]);
+          console.log(`✅ Mistral extracted score from Total: ${score}`);
+        } else {
+          // Pattern 3: XX/100 anywhere in last 200 chars
+          const lastPart = raw.slice(-200);
+          const slashMatch = lastPart.match(/(\d{1,2})\/100/);
+          if (slashMatch) {
+            score = Number(slashMatch[1]);
+            console.log(`✅ Mistral extracted score from XX/100: ${score}`);
+          } else {
+            console.log(`⚠️ Mistral: No score pattern found, using default: ${score}`);
+          }
+        }
+      }
       
-      console.log(`✅ Mistral extracted score: ${score}`);
+      // Clamp to 0-100
+      score = Math.max(0, Math.min(100, score));
       
       return { 
         name: this.name, 
@@ -65,29 +86,37 @@ export class MistralProvider implements AIProvider {
   }
 
   private buildGEOPrompt(brandName: string): string {
-    return `Analyze "${brandName}" GEO visibility score (0-100). Be STRICT and REALISTIC.
+    return `Analyze "${brandName}" GEO visibility. Be STRICT and REALISTIC.
 
-CALIBRATION:
-• No website/dead brand: 0-15
+CALIBRATION SCALE (0-100):
+• No website/dead: 0-15
 • Unknown startup: 5-25  
 • Local business: 10-35
-• Regional player: 25-50
-• National brand: 45-70
+• Regional: 25-50
+• National: 45-70
 • Major brand: 65-85
 • Global leader: 80-95
 
-Rate these 8 criteria (0-100 total):
-1. AI Search Presence (0-25)
-2. Brand Authority (0-20)
-3. Context Quality (0-18)
-4. Competitive Position (0-15)
-5. Community Authority (0-10)
-6. Information Richness (0-12)
-7. Structured Data (0-8)
-8. Geographic Visibility (0-12)
+Evaluate 8 criteria:
+1. AI Search Presence (0-25 points)
+2. Brand Authority (0-20 points)
+3. Context Quality (0-18 points)
+4. Competitive Position (0-15 points)
+5. Community Authority (0-10 points)
+6. Information Richness (0-12 points)
+7. Structured Data (0-8 points)
+8. Geographic Visibility (0-12 points)
 
-CRITICAL: End with exactly:
+Provide brief analysis, then sum all scores.
+
+MANDATORY: You MUST end your response with this EXACT line:
 SCORE: XX/100
+
+Where XX is the total (0-100). This line is REQUIRED!
+
+Example ending:
+"...limited visibility overall.
+SCORE: 23/100"
 
 Be honest. Most brands score 10-40.`;
   }
