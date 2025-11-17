@@ -1,5 +1,4 @@
-import { AIProvider } from './types.js';
-import { buildProviders as buildChatGPT } from './chatgpt.provider.js';
+import { AIProvider } from './providers/types.js';
 
 export async function buildProviders(tier: 'free' | 'pro'): Promise<AIProvider[]> {
   // Only PRO tier now - FREE tier removed
@@ -8,27 +7,27 @@ export async function buildProviders(tier: 'free' | 'pro'): Promise<AIProvider[]
   const providers: AIProvider[] = [];
   
   // Always use PRO providers
-  const chatgpt = new (await import('./chatgpt.provider.js')).ChatGPTProvider();
+  const chatgpt = new (await import('./providers/chatgpt.provider.js')).ChatGPTProvider();
   if (chatgpt.isEnabled()) {
     providers.push(chatgpt);
   }
   
-  const deepseek = new (await import('./deepseek.provider.js')).DeepSeekProvider();
+  const deepseek = new (await import('./providers/deepseek.provider.js')).DeepSeekProvider();
   if (deepseek.isEnabled()) {
     providers.push(deepseek);
   }
   
-  const mistral = new (await import('./mistral.provider.js')).MistralProvider();
+  const mistral = new (await import('./providers/mistral.provider.js')).MistralProvider();
   if (mistral.isEnabled()) {
     providers.push(mistral);
   }
   
-  const grok = new (await import('./grok.provider.js')).GrokProvider();
+  const grok = new (await import('./providers/grok.provider.js')).GrokProvider();
   if (grok.isEnabled()) {
     providers.push(grok);
   }
   
-  const gemini = new (await import('./gemini.provider.js')).GeminiProvider();
+  const gemini = new (await import('./providers/gemini.provider.js')).GeminiProvider();
   if (gemini.isEnabled()) {
     providers.push(gemini);
   }
