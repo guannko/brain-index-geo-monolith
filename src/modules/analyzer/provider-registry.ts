@@ -1,46 +1,42 @@
-import { AIProvider } from './providers/types.js';
-import { ChatGPTProvider } from './providers/chatgpt.provider.js';
-import { ChatGPTFreeProvider } from './providers/chatgpt-free.provider.js';
-import { DeepSeekProvider } from './providers/deepseek.provider.js';
-import { GoogleProvider } from './providers/google.provider.js';
-import { MistralProvider } from './providers/mistral.provider.js';
-import { GrokProvider } from './providers/grok.provider.js';
-import { GeminiProvider } from './providers/gemini.provider.js';
+import { AIProvider } from './types.js';
+import { buildProviders as buildChatGPT } from './chatgpt.provider.js';
 
-export function buildProviders(tier: 'free' | 'pro' = 'pro'): AIProvider[] {
-  // FREE TIER: All 5 main providers (show real visibility across all AI)
-  if (tier === 'free') {
-    return [
-      new ChatGPTFreeProvider(),   // Free analysis
-      new DeepSeekProvider(),
-      new MistralProvider(),
-      new GrokProvider(),
-      new GeminiProvider(),
-    ].filter(p => p.isEnabled());
+export function buildProviders(tier: 'free' | 'pro'): AIProvider[] {
+  // Only PRO tier now - FREE tier removed
+  // Use same PRO analysis for all cases
+  
+  const providers: AIProvider[] = [];
+  
+  // Always use PRO providers
+  const chatgpt = new (await import('./chatgpt.provider.js')).ChatGPTProvider();
+  if (chatgpt.isEnabled()) {
+    providers.push(chatgpt);
   }
   
-  // PRO TIER: All providers with Ultimate GEO 7-criteria analysis
-  const list: AIProvider[] = [
-    new ChatGPTProvider(),       // Ultimate v3.1 PRO
-    new DeepSeekProvider(),
-    new MistralProvider(),
-    new GrokProvider(),
-    new GeminiProvider(),
-    new GoogleProvider(),        // Keep old one for backwards compatibility
-  ];
+  const deepseek = new (await import('./deepseek.provider.js')).DeepSeekProvider();
+  if (deepseek.isEnabled()) {
+    providers.push(deepseek);
+  }
   
-  // Filter by ENV configuration
-  const enabledNames = (process.env.PROVIDERS || 'chatgpt,deepseek,mistral,grok,gemini')
-    .split(',')
-    .map(s => s.trim().toLowerCase());
-    
-  return list.filter(p => enabledNames.includes(p.name) && p.isEnabled());
+  const mistral = new (await import('./mistral.provider.js')).MistralProvider();
+  if (mistral.isEnabled()) {
+    providers.push(mistral);
+  }
+  
+  const grok = new (await import('./grok.provider.js')).GrokProvider();
+  if (grok.isEnabled()) {
+    providers.push(grok);
+  }
+  
+  const gemini = new (await import('./gemini.provider.js')).GeminiProvider();
+  if (gemini.isEnabled()) {
+    providers.push(gemini);
+  }
+  
+  return providers;
 }
 
-// Helper to determine tier from request or user plan
-export function determineTier(userPlan?: string): 'free' | 'pro' {
-  if (!userPlan || userPlan === 'FREE' || userPlan === 'free') {
-    return 'free';
-  }
+export function determineTier(userPlan: string): 'pro' {
+  // Always return PRO - FREE tier removed
   return 'pro';
 }
