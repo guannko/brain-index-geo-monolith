@@ -22,6 +22,8 @@ export class ChatGPTProvider implements AIProvider {
       
       const analysisRaw = analysisRes.choices[0]?.message?.content?.trim() || '';
       
+      console.log(`\n🔍 ChatGPT Analysis Response (first 500 chars):\n${analysisRaw.substring(0, 500)}\n`);
+      
       // PASS 2: Verification & Self-Improvement
       const verifyPrompt = this.buildVerificationPrompt(input, analysisRaw);
       
@@ -34,11 +36,36 @@ export class ChatGPTProvider implements AIProvider {
       
       const verificationRaw = verifyRes.choices[0]?.message?.content?.trim() || '';
       
-      // Extract final score
-      const scoreMatch = verificationRaw.match(/FINAL[_\s]+SCORE[:\s]+(\d+)/i) || 
-                        analysisRaw.match(/TOTAL[_\s]+SCORE[:\s]+(\d+)/i) || 
-                        analysisRaw.match(/(\d+)\/100/);
-      const score = scoreMatch ? Math.max(0, Math.min(100, Number(scoreMatch[1]))) : 50;
+      console.log(`\n🔍 ChatGPT Verification Response:\n${verificationRaw}\n`);
+      
+      // Extract final score - try multiple patterns
+      let score = 50; // default
+      
+      // Pattern 1: FINAL_SCORE: XX
+      const finalScoreMatch = verificationRaw.match(/FINAL[_\s]+SCORE[:\s]+(\d+)/i);
+      if (finalScoreMatch) {
+        score = Number(finalScoreMatch[1]);
+        console.log(`✅ Extracted score from FINAL_SCORE: ${score}`);
+      } else {
+        // Pattern 2: TOTAL_SCORE: XX/100
+        const totalScoreMatch = analysisRaw.match(/TOTAL[_\s]+SCORE[:\s]+(\d+)/i);
+        if (totalScoreMatch) {
+          score = Number(totalScoreMatch[1]);
+          console.log(`✅ Extracted score from TOTAL_SCORE: ${score}`);
+        } else {
+          // Pattern 3: XX/100 anywhere
+          const slashScoreMatch = analysisRaw.match(/(\d+)\/100/);
+          if (slashScoreMatch) {
+            score = Number(slashScoreMatch[1]);
+            console.log(`✅ Extracted score from XX/100: ${score}`);
+          } else {
+            console.log(`⚠️ No score pattern found! Using default: ${score}`);
+          }
+        }
+      }
+      
+      // Clamp to 0-100
+      score = Math.max(0, Math.min(100, score));
       
       return { 
         name: this.name, 
@@ -190,6 +217,15 @@ ULTIMATE GEO SCORING FRAMEWORK (100 points):
 
 ═══════════════════════════════════════════════════════════════════
 
+⚠️ CRITICAL: YOU MUST END YOUR RESPONSE WITH THIS EXACT FORMAT:
+
+TOTAL_SCORE: XX/100
+
+Where XX is the sum of all 8 criteria scores (0-100).
+DO NOT FORGET THIS LINE - IT IS MANDATORY!
+
+═══════════════════════════════════════════════════════════════════
+
 RESPONSE FORMAT:
 
 BRAND: ${brandName}
@@ -279,6 +315,15 @@ VERIFICATION CHECKLIST:
 
 ═══════════════════════════════════════════════════════════════════
 
+⚠️ CRITICAL: YOU MUST END YOUR RESPONSE WITH THIS EXACT FORMAT:
+
+FINAL_SCORE: XX
+
+Where XX is your final verified score (0-100).
+DO NOT FORGET THIS LINE - IT IS MANDATORY!
+
+═══════════════════════════════════════════════════════════════════
+
 VERIFIED RESPONSE FORMAT:
 
 VERIFICATION STATUS: [VERIFIED / ADJUSTED / MAJOR_REVISION_NEEDED]
@@ -292,7 +337,7 @@ SCORE ADJUSTMENTS (if needed):
 • [Criterion]: [Original] → [Adjusted] - [Reason]
 • [Criterion]: [Original] → [Adjusted] - [Reason]
 
-FINAL_SCORE: XX/100
+FINAL_SCORE: XX
 
 CONFIDENCE: [High/Medium/Low]
 
